@@ -1,43 +1,21 @@
-const { execSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
+const { execSync } = require('child_process');
+const fs = require('fs');
 
-// Target URL
-const url = "https://example.com"; // Change this dynamically if needed
+const url = "https://example.com";
 
-// Output file paths
-const outputDir = "./output";
-const htmlFile = path.join(outputDir, "output.html");
-const screenshotFile = path.join(outputDir, "screenshot.png");
-
-// Window size
-const windowSize = "1280x720";
-
-// Ensure output directory exists
-if (!fs.existsSync(outputDir)) {
-  fs.mkdirSync(outputDir);
-}
-
-// Chromium command paths
-const CHROMIUM_BIN = "chromium"; // or "chromium-browser" based on your setup
-
-// Dump rendered HTML
 try {
   console.log("📄 Dumping rendered HTML...");
-  const htmlContent = execSync(`${CHROMIUM_BIN} --headless --disable-gpu --dump-dom "${url}"`, {
-    encoding: "utf-8",
-  });
-  fs.writeFileSync(htmlFile, htmlContent);
-  console.log(`✅ HTML saved to ${htmlFile}`);
+  const html = execSync(`chromium --headless --no-sandbox --disable-gpu --dump-dom "${url}"`).toString();
+  fs.writeFileSync("output/page.html", html);
+  console.log("✅ HTML dumped to output/page.html");
 } catch (err) {
   console.error("❌ Failed to dump HTML:", err.message);
 }
 
-// Take screenshot
 try {
   console.log("📸 Taking screenshot...");
-  execSync(`${CHROMIUM_BIN} --headless --disable-gpu --screenshot="${screenshotFile}" --window-size=${windowSize} "${url}"`);
-  console.log(`✅ Screenshot saved to ${screenshotFile}`);
+  execSync(`chromium --headless --no-sandbox --disable-gpu --screenshot="output/screenshot.png" --window-size=1280x720 "${url}"`);
+  console.log("✅ Screenshot saved to output/screenshot.png");
 } catch (err) {
   console.error("❌ Failed to take screenshot:", err.message);
 }
