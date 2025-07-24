@@ -5,25 +5,62 @@ const puppeteer = require("puppeteer-core");
 const path = require("path");
 const { URL } = require("url");
 const crypto = require("crypto");
+const robotsParser = require("robots-parser");
 
 const MAX_RETRIES = 3;
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 const USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
-const CHROMIUM_PATH = "/usr/bin/chromium"; // Headless Chromium path
+const CHROMIUM_PATH = "/usr/bin/chromium"; // Adjust as needed
+const DEFAULT_THROTTLE = 5000; // 5 seconds between requests
 
 const outputDir = path.join(__dirname, "output");
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
+const visited = new Set();
+const domainRules = {};
+const domainLastAccess = {};
+
 const searchIndex = [];
 
-// Sleep helper
+// Sleep
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// Hash for filename uniqueness
+// Hash
 const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
 
-// Axios fetch
+// Load and parse robots.txt
+async function getRobots(url) {
+  const { origin } = new URL(url);
+  if (domainRules[origin]) return domainRules[origin];
+
+  try {
+    const res = await axios.get(`${origin}/robots.txt`, { headers: { "User-Agent": USER_AGENT } });
+    const robots = robotsParser(`${origin}/robots.txt`, res.data);
+    domainRules[origin] = robots;
+    return robots;
+  } catch {
+    // If fetch fails, allow everything by default
+    const robots = robotsParser("", "");
+    domainRules[origin] = robots;
+    return robots;
+  }
+}
+
+// Throttle per domain
+async function throttleDomain(url) {
+  const { hostname } = new URL(url);
+  const now = Date.now();
+  const last = domainLastAccess[hostname] || 0;
+  const delay = DEFAULT_THROTTLE;
+  const wait = Math.max(0, delay - (now - last));
+  if (wait > 0) await sleep(wait);
+  domainLastAccess[hostname] = Date.now();
+}
+
+// Axios
 async function fetchWithAxios(url) {
+  await throttleDomain(url);
+
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
       const response = await axios.get(url, {
@@ -44,8 +81,16 @@ async function fetchWithAxios(url) {
   return null;
 }
 
-// Puppeteer renderer
+// Puppeteer
 async function renderPageWithPuppeteer(url) {
+  const robots = await getRobots(url);
+  if (!robots.isAllowed(url, "Googlebot")) {
+    console.warn(`🚫 Blocked by robots.txt for Googlebot (Puppeteer skipped): ${url}`);
+    return null;
+  }
+
+  await throttleDomain(url);
+
   const browser = await puppeteer.launch({
     executablePath: CHROMIUM_PATH,
     headless: "new",
@@ -61,7 +106,7 @@ async function renderPageWithPuppeteer(url) {
   return html;
 }
 
-// Download any file
+// Download File
 async function downloadFile(fileUrl, outputPath) {
   try {
     const head = await axios.head(fileUrl);
@@ -76,7 +121,7 @@ async function downloadFile(fileUrl, outputPath) {
   }
 }
 
-// Rewrite and download assets (JS, CSS, IMG, fonts, etc.)
+// Rewrite assets
 async function rewriteAssets($, baseUrl, pageHash) {
   const assetAttrs = [
     { tag: "img", attr: "src" },
@@ -106,15 +151,13 @@ async function rewriteAssets($, baseUrl, pageHash) {
           }
 
           $(el).attr(attr, hashedName);
-        } catch (e) {
-          // Ignore errors silently
-        }
+        } catch {}
       }).get()
     );
   }
 }
 
-// Extract all links
+// Extract links
 function extractLinks($, baseUrl) {
   const links = new Set();
   $("a[href]").each((_, el) => {
@@ -127,10 +170,16 @@ function extractLinks($, baseUrl) {
   return Array.from(links);
 }
 
-// Crawl one page
-async function crawl(url, visited = new Set(), depth = 0) {
+// Crawl page
+async function crawl(url, depth = 0) {
   if (visited.has(url) || depth > 2) return;
   visited.add(url);
+
+  const robots = await getRobots(url);
+  if (!robots.isAllowed(url, "Googlebot")) {
+    console.warn(`🚫 Blocked by robots.txt: ${url}`);
+    return;
+  }
 
   console.log(`🔍 Crawling: ${url}`);
 
@@ -148,19 +197,34 @@ async function crawl(url, visited = new Set(), depth = 0) {
     }
   }
 
+  if (!html) return;
+
   const $ = cheerio.load(html);
   const title = $("title").text().trim() || "untitled";
   const pageHash = hash(url);
   const filename = `page-${pageHash}.html`;
   const filepath = path.join(outputDir, filename);
 
-  // ⬇️ Download and rewrite assets
   await rewriteAssets($, url, pageHash);
 
-  // 💾 Save rebuilt page
+  // Save rebuilt page
   fs.writeFileSync(filepath, $.html(), "utf8");
 
-  // ⬇️ Download important linked files
+  // Fingerprint content
+  const cleanText = $("body").text().trim().replace(/\s+/g, " ");
+  const contentFingerprint = hash(cleanText);
+
+  // Save index
+  searchIndex.push({
+    title,
+    url,
+    filename,
+    js_rendered: usedPuppeteer,
+    text: cleanText.slice(0, 500),
+    content_fingerprint: contentFingerprint,
+  });
+
+  // Download linked files
   $("a[href]").each(async (_, el) => {
     const href = $(el).attr("href");
     if (!href) return;
@@ -173,19 +237,10 @@ async function crawl(url, visited = new Set(), depth = 0) {
     }
   });
 
-  // Save index info
-  searchIndex.push({
-    title,
-    url,
-    filename,
-    js_rendered: usedPuppeteer,
-    text: $("body").text().trim().replace(/\s+/g, " ").slice(0, 500),
-  });
-
-  // Crawl next links
+  // Crawl next
   const links = extractLinks($, url);
   for (const link of links) {
-    await crawl(link, visited, depth + 1);
+    await crawl(link, depth + 1);
   }
 }
 
