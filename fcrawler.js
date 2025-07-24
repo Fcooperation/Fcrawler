@@ -1,46 +1,84 @@
-const { execSync } = require('child_process');
+const axios = require('axios');
+const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
+const robotsParser = require('robots-parser');
 
-const url = process.argv[2] || 'https://vm.tiktok.com/ZSSeQ7KNb/';
+const url = process.argv[2] || 'https://example.com';
 const outputDir = './output';
-const sharedDir = '/data/data/com.termux/files/home/storage/shared/Download'; // Termux shared storage
-
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
-function dumpHTML(url) {
-  const htmlFile = `${outputDir}/page.html`;
+const sharedDir = '/data/data/com.termux/files/home/storage/shared/Download'; // Termux phone path
+
+const userAgent = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+
+function getDomainRoot(u) {
+  const { protocol, hostname } = new URL(u);
+  return `${protocol}//${hostname}`;
+}
+
+async function obeysRobots(url) {
   try {
-    console.log("📄 Dumping rendered HTML...");
-    execSync(`chromium --headless --no-sandbox --disable-gpu --dump-dom "${url}" > ${htmlFile} 2>/dev/null`);
-    console.log("✅ HTML dumped to:", htmlFile);
-
-    // Copy to phone storage
-    const htmlDest = path.join(sharedDir, 'page.html');
-    fs.copyFileSync(htmlFile, htmlDest);
-    console.log("📥 Copied HTML to:", htmlDest);
-
-  } catch (err) {
-    console.error("❌ Failed to dump HTML:", err.message);
+    const robotsUrl = getDomainRoot(url) + '/robots.txt';
+    const res = await axios.get(robotsUrl, { headers: { 'User-Agent': userAgent } });
+    const robots = robotsParser(robotsUrl, res.data);
+    return robots.isAllowed(url, userAgent);
+  } catch {
+    return true; // If robots.txt can't be fetched, proceed
   }
 }
 
-function takeScreenshot(url) {
+async function fetchWithAxios(url) {
+  try {
+    const res = await axios.get(url, {
+      headers: { 'User-Agent': userAgent },
+      timeout: 10000
+    });
+    const $ = cheerio.load(res.data);
+    $('img').each((_, el) => {
+      const src = $(el).attr('src');
+      if (src && src.startsWith('//')) $(el).attr('src', 'https:' + src);
+    });
+    const html = $.html();
+    const htmlFile = `${outputDir}/page.html`;
+    fs.writeFileSync(htmlFile, html);
+    console.log('✅ Axios page saved to:', htmlFile);
+    return true;
+  } catch (err) {
+    console.warn('⚠️ Axios failed, fallback to Chromium:', err.message);
+    return false;
+  }
+}
+
+function useChromium(url) {
+  const htmlFile = `${outputDir}/page.html`;
   const screenshotFile = `${outputDir}/screenshot.png`;
   try {
-    console.log("📸 Taking screenshot...");
-    execSync(`chromium --headless --no-sandbox --disable-gpu --screenshot="${screenshotFile}" --window-size=1280x720 "${url}" 2>/dev/null`);
-    console.log("✅ Screenshot saved to:", screenshotFile);
+    console.log('🌐 Using Chromium to dump DOM...');
+    execSync(`chromium --headless --no-sandbox --disable-gpu --dump-dom "${url}" > "${htmlFile}"`);
+    console.log('✅ Chromium HTML dumped:', htmlFile);
 
-    // Copy to phone storage
-    const imgDest = path.join(sharedDir, 'screenshot.png');
-    fs.copyFileSync(screenshotFile, imgDest);
-    console.log("📥 Copied screenshot to:", imgDest);
-
+    execSync(`chromium --headless --no-sandbox --disable-gpu --screenshot="${screenshotFile}" --window-size=1280x720 "${url}"`);
+    console.log('📸 Chromium screenshot saved:', screenshotFile);
   } catch (err) {
-    console.error("❌ Failed to take screenshot:", err.message);
+    console.error('❌ Chromium failed:', err.message);
   }
 }
 
-dumpHTML(url);
-takeScreenshot(url);
+(async () => {
+  console.log('🔍 Checking robots.txt...');
+  const allowed = await obeysRobots(url);
+  if (!allowed) {
+    console.log('⛔ Blocked by robots.txt, skipping.');
+    return;
+  }
+
+  console.log('⚡ Trying Axios + Cheerio...');
+  const axiosSuccess = await fetchWithAxios(url);
+
+  if (!axiosSuccess) {
+    console.log('🔁 Falling back to headless Chromium...');
+    useChromium(url);
+  }
+})();
