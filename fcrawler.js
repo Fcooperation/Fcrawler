@@ -23,7 +23,7 @@ async function obeysRobots(url) {
     const robots = robotsParser(robotsUrl, res.data);
     return robots.isAllowed(url, userAgent);
   } catch {
-    return true;
+    return true; // Proceed if robots.txt not reachable
   }
 }
 
@@ -33,30 +33,28 @@ async function fetchWithAxios(url) {
       headers: { 'User-Agent': userAgent },
       timeout: 10000
     });
-    const $ = cheerio.load(res.data);
 
+    const $ = cheerio.load(res.data);
     $('img').each((_, el) => {
       const src = $(el).attr('src');
       if (src && src.startsWith('//')) $(el).attr('src', 'https:' + src);
     });
 
-    const bodyText = $('body').text().trim();
-    const hasVisibleContent = bodyText.length > 100;
-    const hasScriptData = $('script').length > 0 || res.data.includes('__NEXT_DATA__') || res.data.includes('window.__');
-
-    // ❗️If content is empty or suspiciously JS-heavy, return false
-    if (!hasVisibleContent || !hasScriptData) {
-      console.warn('⚠️ Detected JS-heavy or empty content — switching to Chromium...');
-      return false;
-    }
-
     const html = $.html();
     const htmlFile = `${outputDir}/page.html`;
     fs.writeFileSync(htmlFile, html);
     console.log('✅ Axios page saved to:', htmlFile);
+
+    // 🔍 Detect if it's mostly JS or empty
+    const text = $('body').text().replace(/\s+/g, ' ').trim();
+    if (text.length < 100 || /javascript required|enable javascript/i.test(html)) {
+      console.warn('⚠️ Content too short or JS required. Switching to Chromium...');
+      return false;
+    }
+
     return true;
   } catch (err) {
-    console.warn('⚠️ Axios failed:', err.message);
+    console.warn('⚠️ Axios failed, fallback to Chromium:', err.message);
     return false;
   }
 }
@@ -64,6 +62,7 @@ async function fetchWithAxios(url) {
 function useChromium(url) {
   const htmlFile = `${outputDir}/page.html`;
   const screenshotFile = `${outputDir}/screenshot.png`;
+
   try {
     console.log('🌐 Using Chromium to dump DOM...');
     execSync(`chromium --headless --no-sandbox --disable-gpu --dump-dom "${url}" > "${htmlFile}"`);
