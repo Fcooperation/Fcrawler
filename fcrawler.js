@@ -2,15 +2,15 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const puppeteer = require('puppeteer-core');
 const robotsParser = require('robots-parser');
 
-const url = process.argv[2] || 'https://vm.tiktok.com/ZSSdeynEt/ This post is shared via TikTok Lite. Download TikTok Lite to enjoy more posts: https://www.tiktok.com/tiktoklite';
+const url = process.argv[2] || 'https://example.com';
 const outputDir = './output';
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
 const userAgent = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
-const crawlDelay = 1000; // ms delay between retries
+const crawlDelay = 1000; // delay between retries in ms
 const maxRetries = 3;
 const mimeWhitelist = ['text/html', 'application/xhtml+xml'];
 
@@ -26,7 +26,7 @@ async function obeysRobots(url) {
     const robots = robotsParser(robotsUrl, res.data);
     return robots.isAllowed(url, userAgent);
   } catch {
-    return true; // Proceed if robots.txt not reachable
+    return true; // allow if robots.txt is not accessible
   }
 }
 
@@ -59,7 +59,7 @@ async function fetchWithAxios(url, retries = 0) {
 
     const text = $('body').text().replace(/\s+/g, ' ').trim();
     if (text.length < 100 || /javascript required|enable javascript/i.test(html)) {
-      console.warn('⚠️ Content too short or JS required. Switching to Chromium...');
+      console.warn('⚠️ Content too short or JS required. Switching to Puppeteer...');
       return false;
     }
 
@@ -75,23 +75,40 @@ async function fetchWithAxios(url, retries = 0) {
   }
 }
 
-function useChromium(url) {
+async function usePuppeteer(url) {
   const htmlFile = `${outputDir}/page.html`;
   const screenshotFile = `${outputDir}/screenshot.png`;
 
   try {
     const startTime = Date.now();
+    console.log('🚀 Launching Puppeteer...');
 
-    console.log('🌐 Using Chromium to dump DOM...');
-    execSync(`chromium --headless --no-sandbox --disable-gpu --dump-dom "${url}" > "${htmlFile}"`);
-    console.log('✅ Chromium HTML dumped:', htmlFile);
+    const browser = await puppeteer.launch({
+      executablePath: '/usr/bin/chromium', // Adjust if needed
+      headless: true,
+      args: ['--no-sandbox', '--disable-gpu']
+    });
 
-    execSync(`chromium --headless --no-sandbox --disable-gpu --screenshot="${screenshotFile}" --window-size=1280x720 "${url}"`);
-    console.log('📸 Chromium screenshot saved:', screenshotFile);
+    const page = await browser.newPage();
+    await page.setUserAgent(userAgent);
 
-    console.log(`⏱️ Chromium fetch took ${Date.now() - startTime}ms`);
+    console.log('🌍 Navigating to page...');
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+
+    // Optional: click or scroll here if needed
+    // await page.click('button.accept'); // Example
+
+    const html = await page.content();
+    fs.writeFileSync(htmlFile, html);
+    console.log('✅ Puppeteer HTML saved to:', htmlFile);
+
+    await page.screenshot({ path: screenshotFile, fullPage: true });
+    console.log('📸 Puppeteer screenshot saved:', screenshotFile);
+
+    console.log(`⏱️ Puppeteer fetch took ${Date.now() - startTime}ms`);
+    await browser.close();
   } catch (err) {
-    console.error('❌ Chromium failed:', err.message);
+    console.error('❌ Puppeteer failed:', err.message);
   }
 }
 
@@ -107,7 +124,7 @@ function useChromium(url) {
   const axiosSuccess = await fetchWithAxios(url);
 
   if (!axiosSuccess) {
-    console.log('🔁 Falling back to headless Chromium...');
-    useChromium(url);
+    console.log('🔁 Falling back to headless Puppeteer...');
+    await usePuppeteer(url);
   }
 })();
