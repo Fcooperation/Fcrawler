@@ -1,21 +1,31 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
+const url = process.argv[2] || 'https://example.com';
+const outputDir = './output';
 
-const url = "https://example.com";
+if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
-try {
-  console.log("📄 Dumping rendered HTML...");
-  const html = execSync(`chromium --headless --no-sandbox --disable-gpu --dump-dom "${url}"`).toString();
-  fs.writeFileSync("output/page.html", html);
-  console.log("✅ HTML dumped to output/page.html");
-} catch (err) {
-  console.error("❌ Failed to dump HTML:", err.message);
+function dumpHTML(url) {
+  const htmlFile = `${outputDir}/page.html`;
+  try {
+    console.log("📄 Dumping rendered HTML...");
+    execSync(`chromium --headless --no-sandbox --disable-gpu --dump-dom "${url}" > ${htmlFile} 2>/dev/null`);
+    console.log("✅ HTML dumped to:", htmlFile);
+  } catch (err) {
+    console.error("❌ Failed to dump HTML:", err.message);
+  }
 }
 
-try {
-  console.log("📸 Taking screenshot...");
-  execSync(`chromium --headless --no-sandbox --disable-gpu --screenshot="output/screenshot.png" --window-size=1280x720 "${url}"`);
-  console.log("✅ Screenshot saved to output/screenshot.png");
-} catch (err) {
-  console.error("❌ Failed to take screenshot:", err.message);
+function takeScreenshot(url) {
+  const screenshotFile = `${outputDir}/screenshot.png`;
+  try {
+    console.log("📸 Taking screenshot...");
+    execSync(`chromium --headless --no-sandbox --disable-gpu --screenshot="${screenshotFile}" --window-size=1280x720 "${url}" 2>/dev/null`);
+    console.log("✅ Screenshot saved to:", screenshotFile);
+  } catch (err) {
+    console.error("❌ Failed to take screenshot:", err.message);
+  }
 }
+
+dumpHTML(url);
+takeScreenshot(url);
