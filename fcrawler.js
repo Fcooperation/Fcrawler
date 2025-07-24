@@ -1,109 +1,254 @@
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const puppeteer = require('puppeteer');
-const { parse } = require('node-html-parser');
-const robotsParser = require('robots-parser');
-const { URL } = require('url');
+const fs = require("fs");
+const axios = require("axios");
+const cheerio = require("cheerio");
+const puppeteer = require("puppeteer-core");
+const path = require("path");
+const { URL } = require("url");
+const crypto = require("crypto");
+const robotsParser = require("robots-parser");
 
-const START_URL = 'https://vm.tiktok.com/ZSSdhekg9/';
-const OUTPUT_DIR = './output';
-const SEARCH_INDEX_PATH = path.join(OUTPUT_DIR, 'search_index.json');
+const MAX_RETRIES = 3;
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+const CHROMIUM_PATH = "/usr/bin/chromium"; // Adjust as needed
+const DEFAULT_THROTTLE = 5000; // 5 seconds between requests
+
+const outputDir = path.join(__dirname, "output");
+if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
 const visited = new Set();
+const domainRules = {};
+const domainLastAccess = {};
 const searchIndex = [];
 
-async function isAllowedByRobots(url) {
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
+
+async function getRobots(url) {
+  const { origin } = new URL(url);
+  if (domainRules[origin]) return domainRules[origin];
+
   try {
-    const { origin } = new URL(url);
-    const robotsTxtUrl = `${origin}/robots.txt`;
-    const res = await axios.get(robotsTxtUrl);
-    const robots = robotsParser(robotsTxtUrl, res.data);
-    return robots.isAllowed(url, 'Mozilla/5.0');
+    const res = await axios.get(`${origin}/robots.txt`, { headers: { "User-Agent": USER_AGENT } });
+    const robots = robotsParser(`${origin}/robots.txt`, res.data);
+    domainRules[origin] = robots;
+    return robots;
   } catch {
-    return true; // Default to allow if robots.txt fails
+    const robots = robotsParser("", "");
+    domainRules[origin] = robots;
+    return robots;
   }
 }
 
-async function scrollToBottom(page, delay = 1000, maxScrolls = 10) {
-  let previousHeight;
-  for (let i = 0; i < maxScrolls; i++) {
+async function throttleDomain(url) {
+  const { hostname } = new URL(url);
+  const now = Date.now();
+  const last = domainLastAccess[hostname] || 0;
+  const delay = DEFAULT_THROTTLE;
+  const wait = Math.max(0, delay - (now - last));
+  if (wait > 0) await sleep(wait);
+  domainLastAccess[hostname] = Date.now();
+}
+
+async function fetchWithAxios(url) {
+  await throttleDomain(url);
+
+  for (let i = 0; i < MAX_RETRIES; i++) {
     try {
-      previousHeight = await page.evaluate('document.body.scrollHeight');
-      await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
-      await page.waitForTimeout(delay);
-      const newHeight = await page.evaluate('document.body.scrollHeight');
-      if (newHeight === previousHeight) break;
-    } catch (e) {
-      break;
+      const response = await axios.get(url, {
+        headers: { "User-Agent": USER_AGENT },
+        timeout: 10000,
+      });
+      const html = response.data;
+      if (/enable javascript/i.test(html) || html.length < 100) {
+        console.warn("❌ Page likely needs JavaScript. Falling back to Puppeteer.");
+        return null;
+      }
+      return html;
+    } catch (err) {
+      console.warn(`⚠️ Axios retry ${i + 1} failed for ${url}: ${err.message}`);
+      await sleep(1000);
     }
   }
+  return null;
 }
 
-async function renderPage(url) {
-  const browser = await puppeteer.launch({ headless: 'new' });
-  const page = await browser.newPage();
-
-  await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/117 Safari/537.36');
-
-  try {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    await scrollToBottom(page);
-    const content = await page.content();
-    const title = await page.title();
-    await browser.close();
-    return { content, title };
-  } catch (e) {
-    await browser.close();
+// 🧭 SCROLLING PUPPETEER
+async function renderPageWithPuppeteer(url) {
+  const robots = await getRobots(url);
+  if (!robots.isAllowed(url, "Googlebot")) {
+    console.warn(`🚫 Blocked by robots.txt for Googlebot (Puppeteer skipped): ${url}`);
     return null;
+  }
+
+  await throttleDomain(url);
+
+  const browser = await puppeteer.launch({
+    executablePath: CHROMIUM_PATH,
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
+  const page = await browser.newPage();
+  await page.setUserAgent(USER_AGENT);
+  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+
+  // 🧭 Scroll to bottom to trigger lazy content
+  try {
+    let prevHeight;
+    while (true) {
+      prevHeight = await page.evaluate("document.body.scrollHeight");
+      await page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+      await sleep(2000);
+      const newHeight = await page.evaluate("document.body.scrollHeight");
+      if (newHeight === prevHeight) break;
+    }
+  } catch (err) {
+    console.warn("⚠️ Scroll error:", err.message);
+  }
+
+  const html = await page.content();
+  await browser.close();
+  return html;
+}
+
+async function downloadFile(fileUrl, outputPath) {
+  try {
+    const head = await axios.head(fileUrl);
+    const size = parseInt(head.headers["content-length"] || "0");
+    if (size && size > MAX_FILE_SIZE) return false;
+
+    const response = await axios({ url: fileUrl, method: "GET", responseType: "arraybuffer" });
+    fs.writeFileSync(outputPath, response.data);
+    return true;
+  } catch {
+    return false;
   }
 }
 
-async function saveHTML(url, html) {
-  const safeName = url.replace(/[^a-z0-9]/gi, '_').toLowerCase().slice(0, 80);
-  const filename = `${safeName}.html`;
-  const filePath = path.join(OUTPUT_DIR, filename);
-  fs.writeFileSync(filePath, html);
-  return filename;
+async function rewriteAssets($, baseUrl, pageHash) {
+  const assetAttrs = [
+    { tag: "img", attr: "src" },
+    { tag: "link", attr: "href" },
+    { tag: "script", attr: "src" },
+    { tag: "source", attr: "src" },
+  ];
+
+  for (const { tag, attr } of assetAttrs) {
+    await Promise.all(
+      $(tag).map(async (_, el) => {
+        const src = $(el).attr(attr);
+        if (!src || src.startsWith("data:")) return;
+
+        try {
+          const assetUrl = new URL(src, baseUrl).href;
+          const ext = path.extname(assetUrl).split("?")[0] || ".bin";
+          const hashedName = `${pageHash}-${hash(assetUrl)}${ext}`;
+          const assetPath = path.join(outputDir, hashedName);
+
+          if (!fs.existsSync(assetPath)) {
+            const res = await axios.get(assetUrl, {
+              responseType: "arraybuffer",
+              headers: { "User-Agent": USER_AGENT },
+            });
+            fs.writeFileSync(assetPath, res.data);
+          }
+
+          $(el).attr(attr, hashedName);
+        } catch {}
+      }).get()
+    );
+  }
 }
 
-async function crawl(url) {
-  if (visited.has(url)) return;
+function extractLinks($, baseUrl) {
+  const links = new Set();
+  $("a[href]").each((_, el) => {
+    try {
+      const href = $(el).attr("href");
+      const abs = new URL(href, baseUrl).href;
+      if (abs.startsWith("http")) links.add(abs);
+    } catch {}
+  });
+  return Array.from(links);
+}
+
+async function crawl(url, depth = 0) {
+  if (visited.has(url) || depth > 2) return;
   visited.add(url);
+
+  const robots = await getRobots(url);
+  if (!robots.isAllowed(url, "Googlebot")) {
+    console.warn(`🚫 Blocked by robots.txt: ${url}`);
+    return;
+  }
 
   console.log(`🔍 Crawling: ${url}`);
 
-  const allowed = await isAllowedByRobots(url);
-  if (!allowed) {
-    console.log(`❌ Blocked by robots.txt: ${url}`);
-    return;
+  let html = await fetchWithAxios(url);
+  let usedPuppeteer = false;
+
+  if (!html) {
+    console.log("⚙️ Using Puppeteer for rendering...");
+    try {
+      html = await renderPageWithPuppeteer(url);
+      usedPuppeteer = true;
+    } catch (err) {
+      console.error(`❌ Puppeteer failed for ${url}: ${err.message}`);
+      return;
+    }
   }
 
-  const rendered = await renderPage(url);
-  if (!rendered) {
-    console.log(`❌ Failed to render: ${url}`);
-    return;
+  if (!html) return;
+
+  const $ = cheerio.load(html);
+  const title = $("title").text().trim() || "untitled";
+  const pageHash = hash(url);
+  const filename = `page-${pageHash}.html`;
+  const filepath = path.join(outputDir, filename);
+
+  await rewriteAssets($, url, pageHash);
+  fs.writeFileSync(filepath, $.html(), "utf8");
+
+  const cleanText = $("body").text().trim().replace(/\s+/g, " ");
+  const contentFingerprint = hash(cleanText);
+
+  searchIndex.push({
+    title,
+    url,
+    filename,
+    js_rendered: usedPuppeteer,
+    text: cleanText.slice(0, 500),
+    content_fingerprint: contentFingerprint,
+  });
+
+  $("a[href]").each(async (_, el) => {
+    const href = $(el).attr("href");
+    if (!href) return;
+    const ext = path.extname(href).toLowerCase();
+    if ([".pdf", ".zip", ".mp3", ".docx"].includes(ext)) {
+      const absUrl = new URL(href, url).href;
+      const outPath = path.join(outputDir, path.basename(absUrl));
+      const success = await downloadFile(absUrl, outPath);
+      if (success) console.log(`⬇️ Downloaded: ${absUrl}`);
+    }
+  });
+
+  const links = extractLinks($, url);
+  for (const link of links) {
+    await crawl(link, depth + 1);
   }
-
-  const { content, title } = rendered;
-
-  const root = parse(content);
-  const text = root.text.trim().replace(/\s+/g, ' ').slice(0, 500);
-
-  const filename = await saveHTML(url, content);
-
-  searchIndex.push({ url, title, filename, text });
-
-  console.log(`✅ Saved: ${filename}`);
 }
 
-async function main() {
-  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
-
-  await crawl(START_URL);
-
-  fs.writeFileSync(SEARCH_INDEX_PATH, JSON.stringify(searchIndex, null, 2));
-  console.log(`✅ Saved search_index.json`);
+function saveIndex() {
+  const indexPath = path.join(outputDir, "search_index.json");
+  fs.writeFileSync(indexPath, JSON.stringify(searchIndex, null, 2));
+  console.log("✅ Saved search_index.json");
 }
 
-main();
+(async () => {
+  const startUrl = process.argv[2] || "https://vm.tiktok.com/ZSSdhekg9/";
+  await crawl(startUrl);
+  saveIndex();
+})();
