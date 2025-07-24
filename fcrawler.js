@@ -1,6 +1,6 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
-const url = process.argv[2] || 'https://example.com';
+const url = process.argv[2] || 'https://vm.tiktok.com/ZSSeQ7KNb/ This post is shared via TikTok Lite. Download TikTok Lite to enjoy more posts:  https://www.tiktok.com/tiktoklite';
 const outputDir = './output';
 
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
