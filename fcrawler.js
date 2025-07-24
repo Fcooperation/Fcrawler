@@ -1,50 +1,43 @@
-const puppeteer = require("puppeteer");
+const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-async function crawlPage(url) {
-  const browser = await puppeteer.launch({ headless: true });
-  const page = await browser.newPage();
+// Target URL
+const url = "https://example.com"; // Change this dynamically if needed
 
-  console.log(`🟢 Crawling: ${url}`);
-  await page.setViewport({ width: 1280, height: 720 });
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+// Output file paths
+const outputDir = "./output";
+const htmlFile = path.join(outputDir, "output.html");
+const screenshotFile = path.join(outputDir, "screenshot.png");
 
-  // Create output folder
-  const folder = "./output";
-  if (!fs.existsSync(folder)) fs.mkdirSync(folder);
+// Window size
+const windowSize = "1280x720";
 
-  // Extract data
-  const html = await page.content();
-  const title = await page.title();
-  const links = await page.$$eval("a", as => as.map(a => a.href));
-
-  // Save HTML
-  const safeTitle = title.replace(/[\/\\?%*:|"<>]/g, "-").slice(0, 50);
-  const htmlPath = path.join(folder, `${safeTitle}.html`);
-  fs.writeFileSync(htmlPath, html);
-
-  // Save screenshot
-  const screenshotPath = path.join(folder, `${safeTitle}.png`);
-  await page.screenshot({ path: screenshotPath, fullPage: true });
-
-  // Save metadata log
-  const metadata = {
-    title,
-    url,
-    file: htmlPath,
-    screenshot: screenshotPath,
-    links,
-  };
-  fs.writeFileSync(
-    path.join(folder, `${safeTitle}_meta.json`),
-    JSON.stringify(metadata, null, 2)
-  );
-
-  console.log(`✅ Saved: ${title}`);
-  console.log(`📎 Links found: ${links.length}`);
-  await browser.close();
+// Ensure output directory exists
+if (!fs.existsSync(outputDir)) {
+  fs.mkdirSync(outputDir);
 }
 
-// Run this with any site
-crawlPage("https://example.com");
+// Chromium command paths
+const CHROMIUM_BIN = "chromium"; // or "chromium-browser" based on your setup
+
+// Dump rendered HTML
+try {
+  console.log("📄 Dumping rendered HTML...");
+  const htmlContent = execSync(`${CHROMIUM_BIN} --headless --disable-gpu --dump-dom "${url}"`, {
+    encoding: "utf-8",
+  });
+  fs.writeFileSync(htmlFile, htmlContent);
+  console.log(`✅ HTML saved to ${htmlFile}`);
+} catch (err) {
+  console.error("❌ Failed to dump HTML:", err.message);
+}
+
+// Take screenshot
+try {
+  console.log("📸 Taking screenshot...");
+  execSync(`${CHROMIUM_BIN} --headless --disable-gpu --screenshot="${screenshotFile}" --window-size=${windowSize} "${url}"`);
+  console.log(`✅ Screenshot saved to ${screenshotFile}`);
+} catch (err) {
+  console.error("❌ Failed to take screenshot:", err.message);
+}
