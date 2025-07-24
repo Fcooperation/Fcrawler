@@ -1,125 +1,167 @@
-const puppeteer = require('puppeteer');
-const axios = require('axios');
-const cheerio = require('cheerio');
-const fs = require('fs-extra');
-const xml2js = require('xml2js');
-const robotsParser = require('robots-parser');
+// fcrawler.js
+
+const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
+const { execSync } = require('child_process');
+const cheerio = require('cheerio');
+const { parseStringPromise } = require('xml2js');
 
 const START_URL = 'https://en.wikipedia.org/wiki/Main_Page';
-const BASE_DOMAIN = 'https://en.wikipedia.org';
-const MAX_PAGES = 50;
-
-const visited = new Set();
+const DOMAIN = 'https://en.wikipedia.org';
+const ROBOTS_TXT = `${DOMAIN}/robots.txt`;
+const SITEMAP_INDEX = 'https://en.wikipedia.org/sitemap-index.xml';
+const VISITED = new Set();
+const ALLOWED_PATHS = [];
+const DISALLOWED_PATHS = [];
 const searchIndex = [];
-let robots;
 
-async function fetchRobotsTxt() {
-  const robotsTxtUrl = `${BASE_DOMAIN}/robots.txt`;
+async function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetch(url) {
   try {
-    const res = await axios.get(robotsTxtUrl);
-    robots = robotsParser(robotsTxtUrl, res.data);
-    console.log('[✓] robots.txt loaded and parsed');
+    const res = await axios.get(url, { timeout: 10000 });
+    return res.data;
   } catch (err) {
-    console.warn('[!] Failed to load robots.txt:', err.message);
-    robots = robotsParser(robotsTxtUrl, '');
+    console.error(`[ERROR] Failed to fetch: ${url}`, err.message);
+    return null;
   }
 }
 
-async function fetchSitemaps() {
-  const sitemapUrl = 'https://en.wikipedia.org/sitemap-index.xml';
-  try {
-    const res = await axios.get(sitemapUrl);
-    const parsed = await xml2js.parseStringPromise(res.data);
-    const sitemaps = parsed.sitemapindex.sitemap.map(s => s.loc[0]);
-    return sitemaps.slice(0, 5); // limit for now
-  } catch (err) {
-    console.warn('[!] Failed to load sitemaps:', err.message);
-    return [];
+function isAllowed(pathname) {
+  for (const dis of DISALLOWED_PATHS) {
+    if (pathname.startsWith(dis)) return false;
   }
-}
-
-function sanitizeFilename(url) {
-  return url.replace(/[^a-z0-9]/gi, '_').slice(0, 80);
-}
-
-async function crawlPage(url, browser) {
-  if (visited.has(url) || !url.startsWith(BASE_DOMAIN)) return;
-  if (!robots.isAllowed(url, '*')) return;
-
-  visited.add(url);
-  console.log(`[→] Crawling: ${url}`);
-
-  const page = await browser.newPage();
-  try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-
-    const title = await page.title();
-    const html = await page.content();
-    const timestamp = new Date().toISOString();
-    const filename = sanitizeFilename(url);
-    const htmlPath = path.join('pages', `${filename}.html`);
-    const imgPath = path.join('screenshots', `${filename}.png`);
-
-    // Save HTML
-    await fs.outputFile(htmlPath, html);
-
-    // Save screenshot
-    await page.setViewport({ width: 1280, height: 720 });
-    await page.screenshot({ path: imgPath });
-
-    // Add to index
-    searchIndex.push({ title, url, filename: `${filename}.html`, screenshot: `${filename}.png`, timestamp });
-
-    // Parse links
-    const $ = cheerio.load(html);
-    const links = $('a[href]').map((i, el) => $(el).attr('href')).get();
-
-    for (const href of links) {
-      if (visited.size >= MAX_PAGES) break;
-      let fullUrl = href;
-      if (href && href.startsWith('/wiki/') && !href.includes(':')) {
-        fullUrl = BASE_DOMAIN + href;
-        await crawlPage(fullUrl, browser);
-      }
-    }
-  } catch (err) {
-    console.warn(`[x] Error on ${url}:`, err.message);
-  } finally {
-    await page.close();
+  for (const allow of ALLOWED_PATHS) {
+    if (pathname.startsWith(allow)) return true;
   }
+  return false;
 }
 
-(async () => {
-  await fs.ensureDir('pages');
-  await fs.ensureDir('screenshots');
-  await fetchRobotsTxt();
+async function parseRobotsTxt() {
+  const content = await fetch(ROBOTS_TXT);
+  if (!content) return;
 
-  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
-  const sitemapUrls = await fetchSitemaps();
-
-  for (const sitemapUrl of sitemapUrls) {
-    if (visited.size >= MAX_PAGES) break;
-    try {
-      const res = await axios.get(sitemapUrl);
-      const parsed = await xml2js.parseStringPromise(res.data);
-      const urls = parsed.urlset.url.map(u => u.loc[0]);
-      for (const url of urls.slice(0, 10)) {
-        if (visited.size >= MAX_PAGES) break;
-        await crawlPage(url, browser);
-      }
-    } catch (err) {
-      console.warn(`[!] Failed to parse sitemap: ${sitemapUrl}`);
+  const lines = content.split('\n');
+  let active = false;
+  for (let line of lines) {
+    line = line.trim();
+    if (line.toLowerCase().startsWith('user-agent:')) {
+      active = line.includes('*');
+    } else if (active && line.toLowerCase().startsWith('disallow:')) {
+      const path = line.split(':')[1].trim();
+      if (path) DISALLOWED_PATHS.push(path);
+    } else if (active && line.toLowerCase().startsWith('allow:')) {
+      const path = line.split(':')[1].trim();
+      if (path) ALLOWED_PATHS.push(path);
     }
   }
+  console.log('Parsed robots.txt ✅');
+}
 
-  // Also crawl from root manually
-  if (visited.size < MAX_PAGES) {
-    await crawlPage(START_URL, browser);
+async function parseSitemaps() {
+  const xml = await fetch(SITEMAP_INDEX);
+  if (!xml) return [];
+
+  const result = await parseStringPromise(xml);
+  const locs = result.sitemapindex.sitemap.map(entry => entry.loc[0]);
+  return locs;
+}
+
+async function extractUrlsFromSitemap(url) {
+  const xml = await fetch(url);
+  if (!xml) return [];
+
+  const result = await parseStringPromise(xml);
+  const urls = result.urlset.url.map(u => u.loc[0]);
+  return urls.filter(u => isAllowed(new URL(u).pathname));
+}
+
+async function saveRenderedPage(url) {
+  const filename = path.basename(url).replace(/[^\w]/g, '_');
+  const htmlFile = `pages/${filename}.html`;
+  const screenshotFile = `screenshots/${filename}.png`;
+
+  // Render and save HTML
+  try {
+    const dump = execSync(`chromium --headless --no-sandbox --disable-gpu --dump-dom ${url}`, { timeout: 10000 }).toString();
+    fs.writeFileSync(htmlFile, dump);
+  } catch (err) {
+    console.error(`[ERROR] Failed to dump HTML for: ${url}`);
+    return;
   }
 
-  await browser.close();
-  await fs.writeJson('search_index.json', searchIndex, { spaces: 2 });
+  // Screenshot
+  try {
+    execSync(`chromium --headless --no-sandbox --disable-gpu --screenshot=${screenshotFile} --window-size=1280,720 ${url}`, { timeout: 10000 });
+  } catch (err) {
+    console.error(`[ERROR] Failed to screenshot: ${url}`);
+  }
 
-  console.log(`\n✅ Done. Total pages crawled: ${visited.size}`);
-})(
+  // Extract metadata
+  const titleMatch = /<title>(.*?)<\/title>/i.exec(fs.readFileSync(htmlFile, 'utf8'));
+  const title = titleMatch ? titleMatch[1] : 'No Title';
+
+  searchIndex.push({
+    title,
+    url,
+    filename: `${filename}.html`,
+    screenshot: `${filename}.png`,
+    timestamp: new Date().toISOString(),
+  });
+
+  console.log(`✅ Saved: ${url}`);
+}
+
+async function crawl(url, depth = 0, maxDepth = 2) {
+  if (VISITED.has(url) || depth > maxDepth) return;
+  VISITED.add(url);
+
+  if (!isAllowed(new URL(url).pathname)) return;
+
+  await saveRenderedPage(url);
+
+  // Parse links
+  const html = await fetch(url);
+  if (!html) return;
+
+  const $ = cheerio.load(html);
+  const links = $('a[href]')
+    .map((_, el) => $(el).attr('href'))
+    .get()
+    .filter(href => href.startsWith('/wiki/') && !href.includes(':'))
+    .map(href => DOMAIN + href.split('#')[0]);
+
+  for (const link of links) {
+    await delay(500); // respectful crawl delay
+    await crawl(link, depth + 1, maxDepth);
+  }
+}
+
+async function main() {
+  fs.mkdirSync('pages', { recursive: true });
+  fs.mkdirSync('screenshots', { recursive: true });
+
+  await parseRobotsTxt();
+  const sitemapUrls = await parseSitemaps();
+
+  const allArticleUrls = [];
+  for (const sitemap of sitemapUrls.slice(0, 2)) {
+    const urls = await extractUrlsFromSitemap(sitemap);
+    allArticleUrls.push(...urls);
+  }
+
+  const selectedUrls = allArticleUrls.slice(0, 5); // limit for testing
+  selectedUrls.unshift(START_URL);
+
+  for (const url of selectedUrls) {
+    await crawl(url);
+  }
+
+  fs.writeFileSync('search_index.json', JSON.stringify(searchIndex, null, 2));
+  console.log('🔍 Finished crawling & indexing.');
+}
+
+main();
