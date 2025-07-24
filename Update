@@ -22,7 +22,7 @@ const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 // Hash for filename uniqueness
 const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
 
-// Try Axios fetch
+// Axios fetch
 async function fetchWithAxios(url) {
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
@@ -61,26 +61,60 @@ async function renderPageWithPuppeteer(url) {
   return html;
 }
 
-// Download files (.pdf, .zip, etc.)
+// Download any file
 async function downloadFile(fileUrl, outputPath) {
   try {
     const head = await axios.head(fileUrl);
     const size = parseInt(head.headers["content-length"] || "0");
     if (size && size > MAX_FILE_SIZE) return false;
 
-    const response = await axios({ url: fileUrl, method: "GET", responseType: "stream" });
-    const writer = fs.createWriteStream(outputPath);
-    response.data.pipe(writer);
-    return new Promise((res) => {
-      writer.on("finish", () => res(true));
-      writer.on("error", () => res(false));
-    });
+    const response = await axios({ url: fileUrl, method: "GET", responseType: "arraybuffer" });
+    fs.writeFileSync(outputPath, response.data);
+    return true;
   } catch {
     return false;
   }
 }
 
-// Extract all links from page
+// Rewrite and download assets (JS, CSS, IMG, fonts, etc.)
+async function rewriteAssets($, baseUrl, pageHash) {
+  const assetAttrs = [
+    { tag: "img", attr: "src" },
+    { tag: "link", attr: "href" },
+    { tag: "script", attr: "src" },
+    { tag: "source", attr: "src" },
+  ];
+
+  for (const { tag, attr } of assetAttrs) {
+    await Promise.all(
+      $(tag).map(async (_, el) => {
+        const src = $(el).attr(attr);
+        if (!src || src.startsWith("data:")) return;
+
+        try {
+          const assetUrl = new URL(src, baseUrl).href;
+          const ext = path.extname(assetUrl).split("?")[0] || ".bin";
+          const hashedName = `${pageHash}-${hash(assetUrl)}${ext}`;
+          const assetPath = path.join(outputDir, hashedName);
+
+          if (!fs.existsSync(assetPath)) {
+            const res = await axios.get(assetUrl, {
+              responseType: "arraybuffer",
+              headers: { "User-Agent": USER_AGENT },
+            });
+            fs.writeFileSync(assetPath, res.data);
+          }
+
+          $(el).attr(attr, hashedName);
+        } catch (e) {
+          // Ignore errors silently
+        }
+      }).get()
+    );
+  }
+}
+
+// Extract all links
 function extractLinks($, baseUrl) {
   const links = new Set();
   $("a[href]").each((_, el) => {
@@ -93,7 +127,7 @@ function extractLinks($, baseUrl) {
   return Array.from(links);
 }
 
-// Main crawler
+// Crawl one page
 async function crawl(url, visited = new Set(), depth = 0) {
   if (visited.has(url) || depth > 2) return;
   visited.add(url);
@@ -101,11 +135,13 @@ async function crawl(url, visited = new Set(), depth = 0) {
   console.log(`🔍 Crawling: ${url}`);
 
   let html = await fetchWithAxios(url);
+  let usedPuppeteer = false;
 
   if (!html) {
     console.log("⚙️ Using Puppeteer for rendering...");
     try {
       html = await renderPageWithPuppeteer(url);
+      usedPuppeteer = true;
     } catch (err) {
       console.error(`❌ Puppeteer failed for ${url}: ${err.message}`);
       return;
@@ -114,11 +150,17 @@ async function crawl(url, visited = new Set(), depth = 0) {
 
   const $ = cheerio.load(html);
   const title = $("title").text().trim() || "untitled";
-  const filename = `page-${hash(url)}.html`;
+  const pageHash = hash(url);
+  const filename = `page-${pageHash}.html`;
   const filepath = path.join(outputDir, filename);
-  fs.writeFileSync(filepath, html, "utf8");
 
-  // Download important files
+  // ⬇️ Download and rewrite assets
+  await rewriteAssets($, url, pageHash);
+
+  // 💾 Save rebuilt page
+  fs.writeFileSync(filepath, $.html(), "utf8");
+
+  // ⬇️ Download important linked files
   $("a[href]").each(async (_, el) => {
     const href = $(el).attr("href");
     if (!href) return;
@@ -131,15 +173,16 @@ async function crawl(url, visited = new Set(), depth = 0) {
     }
   });
 
-  // Save search index
+  // Save index info
   searchIndex.push({
     title,
     url,
     filename,
+    js_rendered: usedPuppeteer,
     text: $("body").text().trim().replace(/\s+/g, " ").slice(0, 500),
   });
 
-  // Crawl deeper
+  // Crawl next links
   const links = extractLinks($, url);
   for (const link of links) {
     await crawl(link, visited, depth + 1);
@@ -153,7 +196,7 @@ function saveIndex() {
   console.log("✅ Saved search_index.json");
 }
 
-// Run
+// Start
 (async () => {
   const startUrl = process.argv[2] || "https://vm.tiktok.com/ZSSdhekg9/";
   await crawl(startUrl);
