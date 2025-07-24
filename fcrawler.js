@@ -9,8 +9,6 @@ const url = process.argv[2] || 'https://example.com';
 const outputDir = './output';
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
-const sharedDir = '/data/data/com.termux/files/home/storage/shared/Download'; // Termux phone path
-
 const userAgent = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 
 function getDomainRoot(u) {
@@ -25,7 +23,7 @@ async function obeysRobots(url) {
     const robots = robotsParser(robotsUrl, res.data);
     return robots.isAllowed(url, userAgent);
   } catch {
-    return true; // If robots.txt can't be fetched, proceed
+    return true;
   }
 }
 
@@ -36,17 +34,29 @@ async function fetchWithAxios(url) {
       timeout: 10000
     });
     const $ = cheerio.load(res.data);
+
     $('img').each((_, el) => {
       const src = $(el).attr('src');
       if (src && src.startsWith('//')) $(el).attr('src', 'https:' + src);
     });
+
+    const bodyText = $('body').text().trim();
+    const hasVisibleContent = bodyText.length > 100;
+    const hasScriptData = $('script').length > 0 || res.data.includes('__NEXT_DATA__') || res.data.includes('window.__');
+
+    // ❗️If content is empty or suspiciously JS-heavy, return false
+    if (!hasVisibleContent || !hasScriptData) {
+      console.warn('⚠️ Detected JS-heavy or empty content — switching to Chromium...');
+      return false;
+    }
+
     const html = $.html();
     const htmlFile = `${outputDir}/page.html`;
     fs.writeFileSync(htmlFile, html);
     console.log('✅ Axios page saved to:', htmlFile);
     return true;
   } catch (err) {
-    console.warn('⚠️ Axios failed, fallback to Chromium:', err.message);
+    console.warn('⚠️ Axios failed:', err.message);
     return false;
   }
 }
