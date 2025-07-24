@@ -3,128 +3,143 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer-core');
-const robotsParser = require('robots-parser');
+const { URL } = require('url');
+const { uploadFile, loginToMega, saveSearchIndex } = require('./megautils'); // helper file you already have
 
-const url = process.argv[2] || 'https://example.com';
-const outputDir = './output';
-if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+const chromiumPath = '/usr/bin/chromium';
+const MAX_RETRIES = 3;
+const CRAWLED = new Set();
+const searchIndex = [];
 
-const userAgent = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
-const crawlDelay = 1000; // delay between retries in ms
-const maxRetries = 3;
-const mimeWhitelist = ['text/html', 'application/xhtml+xml'];
-
-function getDomainRoot(u) {
-  const { protocol, hostname } = new URL(u);
-  return `${protocol}//${hostname}`;
-}
-
-async function obeysRobots(url) {
-  try {
-    const robotsUrl = getDomainRoot(url) + '/robots.txt';
-    const res = await axios.get(robotsUrl, { headers: { 'User-Agent': userAgent } });
-    const robots = robotsParser(robotsUrl, res.data);
-    return robots.isAllowed(url, userAgent);
-  } catch {
-    return true; // allow if robots.txt is not accessible
+async function fetchWithRetries(url, retries = MAX_RETRIES) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await axios.get(url, { timeout: 10000 });
+      return res.data;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(res => setTimeout(res, 1000));
+    }
   }
 }
 
-async function fetchWithAxios(url, retries = 0) {
+async function downloadAndUploadFile(fileUrl, pageTitle, pageUrl) {
   try {
-    const startTime = Date.now();
-    const res = await axios.get(url, {
-      headers: { 'User-Agent': userAgent },
-      timeout: 10000,
-      responseType: 'text',
-      validateStatus: status => status >= 200 && status < 400,
-    });
+    const head = await axios.head(fileUrl);
+    const size = parseInt(head.headers['content-length'] || '0');
+    if (size > 50 * 1024 * 1024) return null; // Skip files >50MB
 
-    const contentType = res.headers['content-type'] || '';
-    if (!mimeWhitelist.some(type => contentType.includes(type))) {
-      console.warn(`⚠️ MIME type "${contentType}" not accepted. Skipping.`);
-      return false;
-    }
+    const filename = path.basename(new URL(fileUrl).pathname);
+    const localPath = path.join(__dirname, 'downloads', filename);
 
-    const $ = cheerio.load(res.data);
-    $('img').each((_, el) => {
-      const src = $(el).attr('src');
-      if (src && src.startsWith('//')) $(el).attr('src', 'https:' + src);
-    });
+    const res = await axios.get(fileUrl, { responseType: 'stream' });
+    await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
+    const writer = fs.createWriteStream(localPath);
+    res.data.pipe(writer);
+    await new Promise(resolve => writer.on('finish', resolve));
 
-    const html = $.html();
-    const htmlFile = `${outputDir}/page.html`;
-    fs.writeFileSync(htmlFile, html);
-    console.log('✅ Axios page saved to:', htmlFile);
-
-    const text = $('body').text().replace(/\s+/g, ' ').trim();
-    if (text.length < 100 || /javascript required|enable javascript/i.test(html)) {
-      console.warn('⚠️ Content too short or JS required. Switching to Puppeteer...');
-      return false;
-    }
-
-    console.log(`⏱️ Axios fetch took ${Date.now() - startTime}ms`);
-    return true;
+    const megaFile = await uploadFile(localPath, filename, pageTitle);
+    return { filename, url: pageUrl, title: pageTitle, megaUrl: megaFile.downloadUrl };
   } catch (err) {
-    console.warn(`⚠️ Axios failed (Attempt ${retries + 1}/${maxRetries}):`, err.message);
-    if (retries < maxRetries) {
-      await new Promise(res => setTimeout(res, crawlDelay));
-      return fetchWithAxios(url, retries + 1);
-    }
-    return false;
+    console.error(`Failed to download/upload ${fileUrl}:`, err.message);
+    return null;
   }
 }
 
-async function usePuppeteer(url) {
-  const htmlFile = `${outputDir}/page.html`;
-  const screenshotFile = `${outputDir}/screenshot.png`;
+async function renderPageWithPuppeteer(url) {
+  const browser = await puppeteer.launch({
+    executablePath: chromiumPath,
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+
+  const page = await browser.newPage();
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+  const html = await page.content();
+
+  const screenshotPath = `thumbs/${Date.now()}.png`;
+  await fs.promises.mkdir(path.dirname(screenshotPath), { recursive: true });
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+
+  await browser.close();
+  return { html, screenshotPath };
+}
+
+async function crawl(url, depth = 0, maxDepth = 2) {
+  if (CRAWLED.has(url) || depth > maxDepth || !url.startsWith('http')) return;
+  CRAWLED.add(url);
 
   try {
-    const startTime = Date.now();
-    console.log('🚀 Launching Puppeteer...');
+    console.log(`Crawling: ${url}`);
 
-    const browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium', // Adjust if needed
-      headless: true,
-      args: ['--no-sandbox', '--disable-gpu']
+    const { html, screenshotPath } = await renderPageWithPuppeteer(url);
+    const $ = cheerio.load(html);
+    const title = $('title').text().trim() || 'Untitled';
+
+    const blocks = [];
+    $('p, h1, h2, h3, img').each((_, el) => {
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'img') {
+        const src = $(el).attr('src');
+        if (src && !src.startsWith('data:')) {
+          blocks.push(`<img src="${src}" />`);
+        }
+      } else {
+        blocks.push(`<${tag}>${$(el).text()}</${tag}>`);
+      }
     });
 
-    const page = await browser.newPage();
-    await page.setUserAgent(userAgent);
+    const structuredHtml = `
+      <html>
+        <head><title>${title}</title></head>
+        <body>${blocks.join('\n')}</body>
+      </html>
+    `.trim();
 
-    console.log('🌍 Navigating to page...');
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    const filename = `page_${Date.now()}.html`;
+    const htmlPath = path.join('downloads', filename);
+    await fs.promises.writeFile(htmlPath, structuredHtml, 'utf8');
 
-    // Optional: click or scroll here if needed
-    // await page.click('button.accept'); // Example
+    const megaHtml = await uploadFile(htmlPath, filename, title);
+    const megaThumb = await uploadFile(screenshotPath, `thumb_${filename}.png`, title);
 
-    const html = await page.content();
-    fs.writeFileSync(htmlFile, html);
-    console.log('✅ Puppeteer HTML saved to:', htmlFile);
+    searchIndex.push({
+      title,
+      url,
+      filename,
+      text: $('body').text().substring(0, 500),
+      thumbnail: megaThumb.downloadUrl
+    });
 
-    await page.screenshot({ path: screenshotFile, fullPage: true });
-    console.log('📸 Puppeteer screenshot saved:', screenshotFile);
+    // Handle file links (PDF, ZIP, MP3, etc.)
+    const links = $('a[href]').map((_, el) => $(el).attr('href')).get();
+    for (const link of links) {
+      const absolute = new URL(link, url).href;
+      if (absolute.match(/\.(pdf|zip|mp3|docx?)$/i)) {
+        const fileMeta = await downloadAndUploadFile(absolute, title, url);
+        if (fileMeta) searchIndex.push(fileMeta);
+      }
+    }
 
-    console.log(`⏱️ Puppeteer fetch took ${Date.now() - startTime}ms`);
-    await browser.close();
+    // Recurse into valid links
+    for (const link of links) {
+      const absolute = new URL(link, url).href;
+      if (absolute.startsWith('http') && !CRAWLED.has(absolute)) {
+        await crawl(absolute, depth + 1, maxDepth);
+      }
+    }
+
   } catch (err) {
-    console.error('❌ Puppeteer failed:', err.message);
+    console.error(`Error crawling ${url}:`, err.message);
   }
 }
 
 (async () => {
-  console.log('🔍 Checking robots.txt...');
-  const allowed = await obeysRobots(url);
-  if (!allowed) {
-    console.log('⛔ Blocked by robots.txt, skipping.');
-    return;
-  }
+  await loginToMega(); // logs into MEGA with your credentials
+  const startUrl = 'https://archive.org/';
+  await crawl(startUrl);
 
-  console.log('⚡ Trying Axios + Cheerio...');
-  const axiosSuccess = await fetchWithAxios(url);
-
-  if (!axiosSuccess) {
-    console.log('🔁 Falling back to headless Puppeteer...');
-    await usePuppeteer(url);
-  }
+  await saveSearchIndex(searchIndex);
+  console.log('✅ Crawl complete. Search index and files uploaded.');
 })();
