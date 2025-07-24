@@ -155,7 +155,7 @@ function saveIndex() {
 
 // Run
 (async () => {
-  const startUrl = process.argv[2] || "https://archive.org/";
+  const startUrl = process.argv[2] || "https://vm.tiktok.com/ZSSdhekg9/";
   await crawl(startUrl);
   saveIndex();
 })();
