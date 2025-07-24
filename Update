@@ -19,16 +19,12 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 const visited = new Set();
 const domainRules = {};
 const domainLastAccess = {};
-
 const searchIndex = [];
 
-// Sleep
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// Hash
 const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
 
-// Load and parse robots.txt
 async function getRobots(url) {
   const { origin } = new URL(url);
   if (domainRules[origin]) return domainRules[origin];
@@ -39,14 +35,12 @@ async function getRobots(url) {
     domainRules[origin] = robots;
     return robots;
   } catch {
-    // If fetch fails, allow everything by default
     const robots = robotsParser("", "");
     domainRules[origin] = robots;
     return robots;
   }
 }
 
-// Throttle per domain
 async function throttleDomain(url) {
   const { hostname } = new URL(url);
   const now = Date.now();
@@ -57,7 +51,6 @@ async function throttleDomain(url) {
   domainLastAccess[hostname] = Date.now();
 }
 
-// Axios
 async function fetchWithAxios(url) {
   await throttleDomain(url);
 
@@ -81,7 +74,7 @@ async function fetchWithAxios(url) {
   return null;
 }
 
-// Puppeteer
+// 🧭 SCROLLING PUPPETEER
 async function renderPageWithPuppeteer(url) {
   const robots = await getRobots(url);
   if (!robots.isAllowed(url, "Googlebot")) {
@@ -101,12 +94,25 @@ async function renderPageWithPuppeteer(url) {
   await page.setUserAgent(USER_AGENT);
   await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
+  // 🧭 Scroll to bottom to trigger lazy content
+  try {
+    let prevHeight;
+    while (true) {
+      prevHeight = await page.evaluate("document.body.scrollHeight");
+      await page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+      await sleep(2000);
+      const newHeight = await page.evaluate("document.body.scrollHeight");
+      if (newHeight === prevHeight) break;
+    }
+  } catch (err) {
+    console.warn("⚠️ Scroll error:", err.message);
+  }
+
   const html = await page.content();
   await browser.close();
   return html;
 }
 
-// Download File
 async function downloadFile(fileUrl, outputPath) {
   try {
     const head = await axios.head(fileUrl);
@@ -121,7 +127,6 @@ async function downloadFile(fileUrl, outputPath) {
   }
 }
 
-// Rewrite assets
 async function rewriteAssets($, baseUrl, pageHash) {
   const assetAttrs = [
     { tag: "img", attr: "src" },
@@ -157,7 +162,6 @@ async function rewriteAssets($, baseUrl, pageHash) {
   }
 }
 
-// Extract links
 function extractLinks($, baseUrl) {
   const links = new Set();
   $("a[href]").each((_, el) => {
@@ -170,7 +174,6 @@ function extractLinks($, baseUrl) {
   return Array.from(links);
 }
 
-// Crawl page
 async function crawl(url, depth = 0) {
   if (visited.has(url) || depth > 2) return;
   visited.add(url);
@@ -206,15 +209,11 @@ async function crawl(url, depth = 0) {
   const filepath = path.join(outputDir, filename);
 
   await rewriteAssets($, url, pageHash);
-
-  // Save rebuilt page
   fs.writeFileSync(filepath, $.html(), "utf8");
 
-  // Fingerprint content
   const cleanText = $("body").text().trim().replace(/\s+/g, " ");
   const contentFingerprint = hash(cleanText);
 
-  // Save index
   searchIndex.push({
     title,
     url,
@@ -224,7 +223,6 @@ async function crawl(url, depth = 0) {
     content_fingerprint: contentFingerprint,
   });
 
-  // Download linked files
   $("a[href]").each(async (_, el) => {
     const href = $(el).attr("href");
     if (!href) return;
@@ -237,21 +235,18 @@ async function crawl(url, depth = 0) {
     }
   });
 
-  // Crawl next
   const links = extractLinks($, url);
   for (const link of links) {
     await crawl(link, depth + 1);
   }
 }
 
-// Save index
 function saveIndex() {
   const indexPath = path.join(outputDir, "search_index.json");
   fs.writeFileSync(indexPath, JSON.stringify(searchIndex, null, 2));
   console.log("✅ Saved search_index.json");
 }
 
-// Start
 (async () => {
   const startUrl = process.argv[2] || "https://vm.tiktok.com/ZSSdhekg9/";
   await crawl(startUrl);
