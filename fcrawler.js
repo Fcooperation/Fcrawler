@@ -24,6 +24,8 @@ const domainRules = {};
 const domainLastAccess = {};
 const searchIndex = [];
 const crawlQueue = [];
+const fingerprintsSeen = new Set();
+const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
   "https://example.com",
@@ -43,6 +45,16 @@ async function getRobots(url) {
       headers: { "User-Agent": USER_AGENT },
     });
     const robots = robotsParser(`${origin}/robots.txt`, res.data);
+
+    // 🧭 Extract sitemaps from robots.txt
+    const sitemapUrls = res.data
+      .split("\n")
+      .filter(line => line.toLowerCase().startsWith("sitemap:"))
+      .map(line => line.split(":")[1].trim());
+    for (const sm of sitemapUrls) {
+      if (!discoveredSitemaps.includes(sm)) discoveredSitemaps.push(sm);
+    }
+
     domainRules[origin] = robots;
     return robots;
   } catch {
@@ -223,6 +235,14 @@ async function crawl(url, depth = 0) {
   if (!html) return;
 
   const $ = cheerio.load(html);
+
+  // 🛑 Skip if <meta name="robots" content="noindex">
+  const metaRobots = $('meta[name="robots"]').attr("content");
+  if (metaRobots && /noindex/i.test(metaRobots)) {
+    console.warn(`🛑 Meta robots tag blocks indexing: ${url}`);
+    return;
+  }
+
   const title = $("title").text().trim() || "untitled";
   const pageHash = hash(url);
   const filename = `page-${pageHash}.html`;
@@ -234,11 +254,23 @@ async function crawl(url, depth = 0) {
   const cleanText = $("body").text().trim().replace(/\s+/g, " ");
   const contentFingerprint = hash(cleanText);
 
+  // 🧠 Deduplicate based on content hash
+  if (fingerprintsSeen.has(contentFingerprint)) {
+    console.warn(`⚠️ Duplicate content detected. Skipping: ${url}`);
+    return;
+  }
+  fingerprintsSeen.add(contentFingerprint);
+
+  const lang = $("html").attr("lang") || "unknown";
+  const canonical = $('link[rel="canonical"]').attr("href") || url;
+
   searchIndex.push({
     title,
     url,
+    canonical,
     filename,
     js_rendered: usedPuppeteer,
+    language: lang,
     text: cleanText.slice(0, 500),
     content_fingerprint: contentFingerprint,
   });
@@ -266,6 +298,12 @@ function saveIndex() {
   const indexPath = path.join(outputDir, "search_index.json");
   fs.writeFileSync(indexPath, JSON.stringify(searchIndex, null, 2));
   console.log("✅ Saved search_index.json");
+
+  if (discoveredSitemaps.length > 0) {
+    const sitemapPath = path.join(outputDir, "discovered_sitemaps.txt");
+    fs.writeFileSync(sitemapPath, discoveredSitemaps.join("\n"));
+    console.log("🗺️ Discovered sitemaps saved.");
+  }
 }
 
 // Entry point
