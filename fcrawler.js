@@ -8,10 +8,10 @@ const crypto = require("crypto");
 const robotsParser = require("robots-parser");
 
 const MAX_RETRIES = 3;
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
-const CHROMIUM_PATH = "/usr/bin/chromium"; // Adjust as needed
-const DEFAULT_THROTTLE = 5000; // 5 seconds between requests
+const CHROMIUM_PATH = "/usr/bin/chromium";
+const DEFAULT_THROTTLE = 5000;
 
 const outputDir = path.join(__dirname, "output");
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
@@ -20,15 +20,19 @@ const visited = new Set();
 const domainRules = {};
 const domainLastAccess = {};
 const searchIndex = [];
+const crawlQueue = [];
+
+const PRIORITY_DOMAINS = [
+  "https://example.com",
+  "https://another-favorite.com",
+];
 
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-
 const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
 
 async function getRobots(url) {
   const { origin } = new URL(url);
   if (domainRules[origin]) return domainRules[origin];
-
   try {
     const res = await axios.get(`${origin}/robots.txt`, { headers: { "User-Agent": USER_AGENT } });
     const robots = robotsParser(`${origin}/robots.txt`, res.data);
@@ -53,7 +57,6 @@ async function throttleDomain(url) {
 
 async function fetchWithAxios(url) {
   await throttleDomain(url);
-
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
       const response = await axios.get(url, {
@@ -74,27 +77,21 @@ async function fetchWithAxios(url) {
   return null;
 }
 
-// 🧭 SCROLLING PUPPETEER
 async function renderPageWithPuppeteer(url) {
   const robots = await getRobots(url);
   if (!robots.isAllowed(url, "Googlebot")) {
     console.warn(`🚫 Blocked by robots.txt for Googlebot (Puppeteer skipped): ${url}`);
     return null;
   }
-
   await throttleDomain(url);
-
   const browser = await puppeteer.launch({
     executablePath: CHROMIUM_PATH,
     headless: "new",
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
-
   const page = await browser.newPage();
   await page.setUserAgent(USER_AGENT);
   await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-
-  // 🧭 Scroll to bottom to trigger lazy content
   try {
     let prevHeight;
     while (true) {
@@ -107,7 +104,6 @@ async function renderPageWithPuppeteer(url) {
   } catch (err) {
     console.warn("⚠️ Scroll error:", err.message);
   }
-
   const html = await page.content();
   await browser.close();
   return html;
@@ -118,7 +114,6 @@ async function downloadFile(fileUrl, outputPath) {
     const head = await axios.head(fileUrl);
     const size = parseInt(head.headers["content-length"] || "0");
     if (size && size > MAX_FILE_SIZE) return false;
-
     const response = await axios({ url: fileUrl, method: "GET", responseType: "arraybuffer" });
     fs.writeFileSync(outputPath, response.data);
     return true;
@@ -134,19 +129,16 @@ async function rewriteAssets($, baseUrl, pageHash) {
     { tag: "script", attr: "src" },
     { tag: "source", attr: "src" },
   ];
-
   for (const { tag, attr } of assetAttrs) {
     await Promise.all(
       $(tag).map(async (_, el) => {
         const src = $(el).attr(attr);
         if (!src || src.startsWith("data:")) return;
-
         try {
           const assetUrl = new URL(src, baseUrl).href;
           const ext = path.extname(assetUrl).split("?")[0] || ".bin";
           const hashedName = `${pageHash}-${hash(assetUrl)}${ext}`;
           const assetPath = path.join(outputDir, hashedName);
-
           if (!fs.existsSync(assetPath)) {
             const res = await axios.get(assetUrl, {
               responseType: "arraybuffer",
@@ -154,7 +146,6 @@ async function rewriteAssets($, baseUrl, pageHash) {
             });
             fs.writeFileSync(assetPath, res.data);
           }
-
           $(el).attr(attr, hashedName);
         } catch {}
       }).get()
@@ -237,7 +228,7 @@ async function crawl(url, depth = 0) {
 
   const links = extractLinks($, url);
   for (const link of links) {
-    await crawl(link, depth + 1);
+    if (!visited.has(link)) crawlQueue.push({ url: link, depth: depth + 1 });
   }
 }
 
@@ -249,6 +240,22 @@ function saveIndex() {
 
 (async () => {
   const startUrl = process.argv[2] || "https://vm.tiktok.com/ZSSdhekg9/";
-  await crawl(startUrl);
+
+  // Load priority domains first
+  for (const url of PRIORITY_DOMAINS) {
+    crawlQueue.push({ url, depth: 0 });
+  }
+
+  // Add start URL last if not already prioritized
+  if (!PRIORITY_DOMAINS.includes(startUrl)) {
+    crawlQueue.push({ url: startUrl, depth: 0 });
+  }
+
+  // Main crawl loop
+  while (crawlQueue.length > 0) {
+    const { url, depth } = crawlQueue.shift();
+    await crawl(url, depth);
+  }
+
   saveIndex();
 })();
