@@ -79,8 +79,8 @@ async function fetchWithAxios(url) {
 
 async function renderPageWithPuppeteer(url) {
   const robots = await getRobots(url);
-  if (!robots.isAllowed(url, "Googlebot")) {
-    console.warn(`🚫 Blocked by robots.txt for Googlebot (Puppeteer skipped): ${url}`);
+  if (!robots.isAllowed(url, "*")) {
+    console.warn(`🚫 Blocked by robots.txt for '*': ${url}`);
     return null;
   }
 
@@ -106,7 +106,6 @@ async function renderPageWithPuppeteer(url) {
   try {
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-    // Scroll for dynamic content loading
     let prevHeight = 0;
     while (true) {
       const newHeight = await page.evaluate("document.body.scrollHeight");
@@ -188,7 +187,7 @@ async function crawl(url, depth = 0) {
   visited.add(url);
 
   const robots = await getRobots(url);
-  if (!robots.isAllowed(url, "Googlebot")) {
+  if (!robots.isAllowed(url, "*")) {
     console.warn(`🚫 Blocked by robots.txt: ${url}`);
     return;
   }
