@@ -106,6 +106,7 @@ async function renderPageWithPuppeteer(url) {
   try {
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
+    // Scroll for dynamic content loading
     let prevHeight = 0;
     while (true) {
       const newHeight = await page.evaluate("document.body.scrollHeight");
