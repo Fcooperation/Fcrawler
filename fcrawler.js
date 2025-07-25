@@ -9,7 +9,7 @@ const robotsParser = require("robots-parser");
 
 const MAX_RETRIES = 3;
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
-const USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/119 Safari/537.36";
 const CHROMIUM_PATH = "/usr/bin/chromium";
 const DEFAULT_THROTTLE = 5000;
 
@@ -83,30 +83,46 @@ async function renderPageWithPuppeteer(url) {
     console.warn(`🚫 Blocked by robots.txt for Googlebot (Puppeteer skipped): ${url}`);
     return null;
   }
+
   await throttleDomain(url);
   const browser = await puppeteer.launch({
     executablePath: CHROMIUM_PATH,
     headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled",
+      "--disable-dev-shm-usage",
+      "--disable-infobars",
+      "--window-size=1920,1080",
+    ],
+    defaultViewport: null,
   });
+
   const page = await browser.newPage();
   await page.setUserAgent(USER_AGENT);
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+  await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
+
   try {
-    let prevHeight;
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+
+    let prevHeight = 0;
     while (true) {
-      prevHeight = await page.evaluate("document.body.scrollHeight");
-      await page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
-      await sleep(2000);
       const newHeight = await page.evaluate("document.body.scrollHeight");
       if (newHeight === prevHeight) break;
+      prevHeight = newHeight;
+      await page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+      await sleep(2000);
     }
+
+    const html = await page.content();
+    return html;
   } catch (err) {
-    console.warn("⚠️ Scroll error:", err.message);
+    console.warn(`⚠️ Puppeteer rendering failed: ${err.message}`);
+    return null;
+  } finally {
+    await browser.close();
   }
-  const html = await page.content();
-  await browser.close();
-  return html;
 }
 
 async function downloadFile(fileUrl, outputPath) {
@@ -129,6 +145,7 @@ async function rewriteAssets($, baseUrl, pageHash) {
     { tag: "script", attr: "src" },
     { tag: "source", attr: "src" },
   ];
+
   for (const { tag, attr } of assetAttrs) {
     await Promise.all(
       $(tag).map(async (_, el) => {
@@ -241,17 +258,14 @@ function saveIndex() {
 (async () => {
   const startUrl = process.argv[2] || "https://vm.tiktok.com/ZSSdhekg9/";
 
-  // Load priority domains first
   for (const url of PRIORITY_DOMAINS) {
     crawlQueue.push({ url, depth: 0 });
   }
 
-  // Add start URL last if not already prioritized
   if (!PRIORITY_DOMAINS.includes(startUrl)) {
     crawlQueue.push({ url: startUrl, depth: 0 });
   }
 
-  // Main crawl loop
   while (crawlQueue.length > 0) {
     const { url, depth } = crawlQueue.shift();
     await crawl(url, depth);
