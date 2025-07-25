@@ -11,10 +11,7 @@ const robotsParser = require("robots-parser");
 // Configuration
 const MAX_RETRIES = 3;
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
-
-// ✅ Use actual Googlebot UA string
-const USER_AGENT =
-  "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+const USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
 const CHROMIUM_PATH = "/usr/bin/chromium";
 const DEFAULT_THROTTLE = 5000;
 
@@ -35,10 +32,9 @@ const PRIORITY_DOMAINS = [
 
 // Utils
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-const hash = (str) =>
-  crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
+const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
 
-// 📜 Load and parse robots.txt per domain
+// Load and parse robots.txt per domain
 async function getRobots(url) {
   const { origin } = new URL(url);
   if (domainRules[origin]) return domainRules[origin];
@@ -56,7 +52,7 @@ async function getRobots(url) {
   }
 }
 
-// 🕓 Delay requests per domain
+// Delay requests per domain
 async function throttleDomain(url) {
   const { hostname } = new URL(url);
   const now = Date.now();
@@ -67,7 +63,7 @@ async function throttleDomain(url) {
   domainLastAccess[hostname] = Date.now();
 }
 
-// 🌐 Attempt normal fetch first
+// Axios fetch
 async function fetchWithAxios(url) {
   await throttleDomain(url);
   for (let i = 0; i < MAX_RETRIES; i++) {
@@ -90,7 +86,7 @@ async function fetchWithAxios(url) {
   return null;
 }
 
-// 🧠 Smart Puppeteer rendering with scrolling
+// Puppeteer rendering with scroll
 async function renderPageWithPuppeteer(url) {
   const robots = await getRobots(url);
   if (!robots.isAllowed(url, "*")) {
@@ -121,7 +117,6 @@ async function renderPageWithPuppeteer(url) {
   try {
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-    // ✅ Scrolling logic (Googlebot doesn’t scroll, but we simulate a real user here)
     let prevHeight = 0;
     while (true) {
       const newHeight = await page.evaluate("document.body.scrollHeight");
@@ -141,7 +136,7 @@ async function renderPageWithPuppeteer(url) {
   }
 }
 
-// 📦 Downloads files
+// Download files
 async function downloadFile(fileUrl, outputPath) {
   try {
     const head = await axios.head(fileUrl);
@@ -155,7 +150,7 @@ async function downloadFile(fileUrl, outputPath) {
   }
 }
 
-// 🛠️ Rewrites asset URLs and saves them
+// Rewrite and save assets
 async function rewriteAssets($, baseUrl, pageHash) {
   const assetAttrs = [
     { tag: "img", attr: "src" },
@@ -190,7 +185,7 @@ async function rewriteAssets($, baseUrl, pageHash) {
   }
 }
 
-// 🔗 Extracts links from HTML
+// Extract links
 function extractLinks($, baseUrl) {
   const links = new Set();
   $("a[href]").each((_, el) => {
@@ -203,7 +198,7 @@ function extractLinks($, baseUrl) {
   return Array.from(links);
 }
 
-// 🔍 Main crawl logic
+// Main crawler
 async function crawl(url, depth = 0) {
   if (visited.has(url) || depth > 2) return;
   visited.add(url);
@@ -266,14 +261,14 @@ async function crawl(url, depth = 0) {
   }
 }
 
-// 💾 Save search index
+// Save search index
 function saveIndex() {
   const indexPath = path.join(outputDir, "search_index.json");
   fs.writeFileSync(indexPath, JSON.stringify(searchIndex, null, 2));
   console.log("✅ Saved search_index.json");
 }
 
-// 🏁 Entry point
+// Entry point
 (async () => {
   const startUrl = process.argv[2] || "https://vm.tiktok.com/ZSSdhekg9/";
 
