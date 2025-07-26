@@ -9,7 +9,7 @@ const { createClient } = require("@supabase/supabase-js");
 // 🔐 Your Supabase credentials (replace these!)
 const SUPABASE_URL = "https://pwsxezhugsxosbwhkdvf.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3c3hlemh1Z3N4b3Nid2hrZHZmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTkyODM4NywiZXhwIjoyMDY3NTA0Mzg3fQ.u7lU9gAE-hbFprFIDXQlep4q2bhjj0QdlxXF-kylVBQ";
-const SUPABASE_BUCKET = "crawler"; // You must create this bucket in Supabase web UI
+const SUPABASE_BUCKET = "fstorage"; // You must create this bucket in Supabase web UI
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const { URL } = require("url");
