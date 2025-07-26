@@ -376,5 +376,20 @@ for (const file of allFiles) {
     await uploadToSupabaseStorage(fullPath, "html");
   }
 }
+  // Upload search_index.json to Supabase Table
+  const indexJsonPath = path.join(outputDir, "search_index.json");
+  const indexData = JSON.parse(fs.readFileSync(indexJsonPath, "utf8"));
+
+  for (const item of indexData) {
+    const { error } = await supabase
+      .from("searchindex") // change to your table name if different
+      .insert(item);
+
+    if (error) {
+      console.error(`❌ Failed to insert: ${item.url}`, error.message);
+    } else {
+      console.log(`📥 Inserted to searchindex: ${item.url}`);
+    }
+  }
   
 })();
