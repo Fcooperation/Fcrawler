@@ -367,4 +367,14 @@ function saveIndex() {
   }
 
   saveIndex();
+
+  // Upload all .html files in output folder to bucket
+const allFiles = fs.readdirSync(outputDir);
+for (const file of allFiles) {
+  if (file.endsWith(".html")) {
+    const fullPath = path.join(outputDir, file);
+    await uploadToSupabaseStorage(fullPath, "html");
+  }
+}
+  
 })();
