@@ -4,6 +4,14 @@ const axios = require("axios");
 const cheerio = require("cheerio");
 const puppeteer = require("puppeteer-core");
 const path = require("path");
+const { createClient } = require("@supabase/supabase-js");
+
+// 🔐 Your Supabase credentials (replace these!)
+const SUPABASE_URL = "https://your-project-id.supabase.co";
+const SUPABASE_KEY = "your-anon-or-service-key";
+const SUPABASE_BUCKET = "crawler"; // You must create this bucket in Supabase web UI
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const { URL } = require("url");
 const crypto = require("crypto");
 const robotsParser = require("robots-parser");
