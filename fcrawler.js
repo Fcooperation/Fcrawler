@@ -44,6 +44,38 @@ const PRIORITY_DOMAINS = [
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
 
+async function uploadToSupabaseStorage(filePath, folderName) {
+  const fileBuffer = fs.readFileSync(filePath);
+  const fileName = path.basename(filePath);
+  const supabasePath = `${folderName}/${fileName}`; // e.g., example.com/page-abc123.html
+
+  const { error } = await supabase.storage
+    .from(SUPABASE_BUCKET)
+    .upload(supabasePath, fileBuffer, {
+      contentType: getMimeType(fileName),
+      upsert: true,
+    });
+
+  if (error) {
+    console.error(`❌ Failed to upload ${fileName}:`, error.message);
+  } else {
+    console.log(`✅ Uploaded to Supabase: ${supabasePath}`);
+  }
+}
+
+// Get MIME type from extension
+function getMimeType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === ".html") return "text/html";
+  if (ext === ".json") return "application/json";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".png") return "image/png";
+  if (ext === ".pdf") return "application/pdf";
+  if (ext === ".mp3") return "audio/mpeg";
+  if (ext === ".zip") return "application/zip";
+  return "application/octet-stream";
+}
+
 // Load and parse robots.txt per domain
 async function getRobots(url) {
   const { origin } = new URL(url);
