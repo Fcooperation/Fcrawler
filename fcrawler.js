@@ -38,6 +38,7 @@ const discoveredSitemaps = [];
 const PRIORITY_DOMAINS = [
   "https://example.com",
   "https://another-favorite.com",
+  "https://fcooperation-phone-accessories.blogspot.com/?m=1",
 ];
 
 // Utils
