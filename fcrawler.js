@@ -322,6 +322,62 @@ async function crawl(url, depth = 0) {
   js_rendered: usedPuppeteer,
 };
 
+  // Extracted text
+const rawText = $("body").text().trim();
+const headings = $("h1,h2,h3").map((_, el) => $(el).text().trim()).get();
+const summary = rawText.split(" ").slice(0, 50).join(" ") + "..."; // Simple snippet
+
+const faiData = {
+  url,
+  title,
+  domain: new URL(url).hostname,
+  language: lang,
+  raw_text: rawText,
+  headings,
+  summary,
+  html_filename: filename,
+  js_rendered: usedPuppeteer,
+  canonical_url: canonical,
+  content_fingerprint: contentFingerprint,
+  image_filenames: $("img").map((_, img) => $(img).attr("src")).get(),
+  file_urls: [], // Will push below
+  file_types: [],
+  file_sizes: [],
+  file_thumbnails: [],
+  extracted_file_texts: [],
+};
+
+// Push downloaded files into faiData
+$("a[href]").each(async (_, el) => {
+  const href = $(el).attr("href");
+  if (!href) return;
+  const ext = path.extname(href).toLowerCase();
+  if ([".pdf", ".zip", ".mp3", ".docx"].includes(ext)) {
+    const absUrl = new URL(href, url).href;
+    const outPath = path.join(outputDir, path.basename(absUrl));
+    const success = await downloadFile(absUrl, outPath);
+    if (success) {
+      faiData.file_urls.push(absUrl);
+      faiData.file_types.push(ext.slice(1));
+      try {
+        const head = await axios.head(absUrl);
+        const size = parseInt(head.headers["content-length"] || "0");
+        faiData.file_sizes.push(size);
+      } catch {
+        faiData.file_sizes.push(null);
+      }
+    }
+  }
+});
+
+// Upload to Supabase
+const { error: faiError } = await supabase.from("faitrainingdata").insert(faiData);
+if (faiError) {
+  console.error(`❌ Failed to insert into faitrainingdata: ${url}`, faiError.message);
+} else {
+  console.log(`📡 Added to faitrainingdata: ${url}`);
+}
+
 searchIndex.push(searchItem); // Save locally to file as backup
 
 // Upload immediately to Supabase searchindex table
