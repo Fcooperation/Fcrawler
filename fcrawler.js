@@ -298,28 +298,7 @@ async function crawl(url, depth = 0) {
   await uploadToSupabaseStorage(filepath, "html");
 
   // Add current page to search index
-const searchItem = {
-  url,
-  title,
-  filename,
-  lang,
-  canonical,
-  content_fingerprint: contentFingerprint,
-  js_rendered: usedPuppeteer,
-};
 
-searchIndex.push(searchItem); // still store locally
-
-// Insert into Supabase Table immediately
-const { error } = await supabase
-  .from("searchindex")
-  .insert(searchItem);
-
-if (error) {
-  console.error(`❌ Failed to insert: ${url}`, error.message);
-} else {
-  console.log(`📥 Inserted to searchindex: ${url}`);
-}
 
   const cleanText = $("body").text().trim().replace(/\s+/g, " ");
   const contentFingerprint = hash(cleanText);
@@ -333,6 +312,28 @@ if (error) {
 
   const lang = $("html").attr("lang") || "unknown";
   const canonical = $('link[rel="canonical"]').attr("href") || url;
+  const searchItem = {
+  url,
+  title,
+  filename,
+  lang,
+  canonical,
+  content_fingerprint: contentFingerprint,
+  js_rendered: usedPuppeteer,
+};
+
+searchIndex.push(searchItem); // Save locally to file as backup
+
+// Upload immediately to Supabase searchindex table
+const { error } = await supabase
+  .from("searchindex")
+  .insert(searchItem);
+
+if (error) {
+  console.error(`❌ Failed to insert: ${url}`, error.message);
+} else {
+  console.log(`📥 Inserted to searchindex: ${url}`);
+}
 
   
   $("a[href]").each(async (_, el) => {
