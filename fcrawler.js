@@ -295,6 +295,31 @@ async function crawl(url, depth = 0) {
 
   await rewriteAssets($, url, pageHash);
   fs.writeFileSync(filepath, $.html(), "utf8");
+  await uploadToSupabaseStorage(filepath, "html");
+
+  // Add current page to search index
+const searchItem = {
+  url,
+  title,
+  filename,
+  lang,
+  canonical,
+  content_fingerprint: contentFingerprint,
+  js_rendered: usedPuppeteer,
+};
+
+searchIndex.push(searchItem); // still store locally
+
+// Insert into Supabase Table immediately
+const { error } = await supabase
+  .from("searchindex")
+  .insert(searchItem);
+
+if (error) {
+  console.error(`❌ Failed to insert: ${url}`, error.message);
+} else {
+  console.log(`📥 Inserted to searchindex: ${url}`);
+}
 
   const cleanText = $("body").text().trim().replace(/\s+/g, " ");
   const contentFingerprint = hash(cleanText);
@@ -361,20 +386,6 @@ function saveIndex() {
   saveIndex();
 
 
-  // Upload search_index.json to Supabase Table
-  const indexJsonPath = path.join(outputDir, "search_index.json");
-  const indexData = JSON.parse(fs.readFileSync(indexJsonPath, "utf8"));
-
-  for (const item of indexData) {
-    const { error } = await supabase
-      .from("searchindex") // change to your table name if different
-      .insert(item);
-
-    if (error) {
-      console.error(`❌ Failed to insert: ${item.url}`, error.message);
-    } else {
-      console.log(`📥 Inserted to searchindex: ${item.url}`);
-    }
-  }
+  
   
 })();
