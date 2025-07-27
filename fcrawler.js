@@ -227,11 +227,11 @@ async function downloadFile(fileUrl, outputPath) {
       const compressedPath = outputPath + ".gz";
       const compressed = zlib.gzipSync(response.data);
       fs.writeFileSync(compressedPath, compressed);
-      await uploadToSupabaseStorage(compressedPath, "compressed");
+      
     } else {
       fs.writeFileSync(outputPath, response.data);
       const domainFolder = new URL(fileUrl).hostname.replace(/^www\./, "");
-      await uploadToSupabaseStorage(outputPath, domainFolder);
+      
     }
 
     return true;
