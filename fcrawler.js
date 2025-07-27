@@ -197,7 +197,7 @@ async function downloadFile(fileUrl, outputPath) {
     if (size && size > MAX_FILE_SIZE) return false;
     const response = await axios({ url: fileUrl, method: "GET", responseType: "arraybuffer" });
     fs.writeFileSync(outputPath, response.data);
-    await uploadToSupabaseStorage(filepath, "html");
+    
 const domainFolder = new URL(fileUrl).hostname.replace(/^www\./, "");
 await uploadToSupabaseStorage(outputPath, domainFolder);
 return true;
