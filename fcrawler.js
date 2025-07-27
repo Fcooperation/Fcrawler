@@ -205,6 +205,41 @@ return true;
   } catch {
     return false;
   }
+  const zlib = require("zlib");
+
+async function downloadFile(fileUrl, outputPath) {
+  try {
+    const head = await axios.head(fileUrl);
+    const size = parseInt(head.headers["content-length"] || "0");
+    if (size && size > MAX_FILE_SIZE) return false;
+
+    const response = await axios({
+      url: fileUrl,
+      method: "GET",
+      responseType: "arraybuffer",
+      headers: { "User-Agent": USER_AGENT },
+    });
+
+    const ext = path.extname(fileUrl).toLowerCase();
+    const shouldCompress = [".pdf", ".zip", ".mp3", ".docx"].includes(ext);
+
+    if (shouldCompress) {
+      const compressedPath = outputPath + ".gz";
+      const compressed = zlib.gzipSync(response.data);
+      fs.writeFileSync(compressedPath, compressed);
+      await uploadToSupabaseStorage(compressedPath, "compressed");
+    } else {
+      fs.writeFileSync(outputPath, response.data);
+      const domainFolder = new URL(fileUrl).hostname.replace(/^www\./, "");
+      await uploadToSupabaseStorage(outputPath, domainFolder);
+    }
+
+    return true;
+  } catch (err) {
+    console.warn(`❌ Failed to download ${fileUrl}: ${err.message}`);
+    return false;
+  }
+}
 }
 
 // Rewrite and save assets
