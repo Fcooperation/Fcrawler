@@ -9,7 +9,7 @@ const { createClient } = require("@supabase/supabase-js");
 // 🔐 Your Supabase credentials (replace these!)
 const SUPABASE_URL = "https://pwsxezhugsxosbwhkdvf.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3c3hlemh1Z3N4b3Nid2hrZHZmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTkyODM4NywiZXhwIjoyMDY3NTA0Mzg3fQ.u7lU9gAE-hbFprFIDXQlep4q2bhjj0QdlxXF-kylVBQ";
-const SUPABASE_BUCKET = "fstorage"; // You must create this bucket in Supabase web UI
+
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const { URL } = require("url");
@@ -45,24 +45,7 @@ const PRIORITY_DOMAINS = [
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
 
-async function uploadToSupabaseStorage(filePath, folderName) {
-  const fileBuffer = fs.readFileSync(filePath);
-  const fileName = path.basename(filePath);
-  const supabasePath = `${folderName}/${fileName}`; // e.g., example.com/page-abc123.html
 
-  const { error } = await supabase.storage
-    .from(SUPABASE_BUCKET)
-    .upload(supabasePath, fileBuffer, {
-      contentType: getMimeType(fileName),
-      upsert: true,
-    });
-
-  if (error) {
-    console.error(`❌ Failed to upload ${fileName}:`, error.message);
-  } else {
-    console.log(`✅ Uploaded to Supabase: ${supabasePath}`);
-  }
-}
 
 // Get MIME type from extension
 function getMimeType(filename) {
@@ -198,14 +181,13 @@ async function downloadFile(fileUrl, outputPath) {
     const response = await axios({ url: fileUrl, method: "GET", responseType: "arraybuffer" });
     fs.writeFileSync(outputPath, response.data);
     
-const domainFolder = new URL(fileUrl).hostname.replace(/^www\./, "");
-await uploadToSupabaseStorage(outputPath, domainFolder);
-return true;
+
+
     return true;
   } catch {
     return false;
   }
-  const zlib = require("zlib");
+  
 
 
 }
@@ -298,7 +280,7 @@ async function crawl(url, depth = 0) {
 
   await rewriteAssets($, url, pageHash);
   fs.writeFileSync(filepath, $.html(), "utf8");
-  await uploadToSupabaseStorage(filepath, "html");
+  
 
   // Add current page to search index
 
