@@ -9,7 +9,7 @@ const { createClient } = require("@supabase/supabase-js");
 // 🔐 Your Supabase credentials (replace these!)
 const SUPABASE_URL = "https://pwsxezhugsxosbwhkdvf.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3c3hlemh1Z3N4b3Nid2hrZHZmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTkyODM4NywiZXhwIjoyMDY3NTA0Mzg3fQ.u7lU9gAE-hbFprFIDXQlep4q2bhjj0QdlxXF-kylVBQ";
-
+const SUPABASE_BUCKET = "fstorage"; // You must create this bucket in Supabase web UI
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const { URL } = require("url");
@@ -36,38 +36,33 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://simple.wikipedia.org",
-  "https://en.wikipedia.org",
-  "https://www.wiktionary.org",
-  "https://www.wikibooks.org",
-  "https://www.wikiversity.org",
-  "https://www.wikivoyage.org",
-  "https://www.wikinews.org",
-  "https://www.britannica.com",
-  "https://www.infoplease.com",
-  "https://www.factmonster.com",
-  "https://www.worldatlas.com",
-  "https://www.nationalgeographic.com",
-  "https://www.howstuffworks.com",
-  "https://www.ducksters.com",
-  "https://kids.britannica.com",
-  "https://www.teachervision.com",
-  "https://www.scientificamerican.com",
-  "https://www.history.com/topics",
-  "https://www.livescience.com",
-  "https://www.space.com",
-  "https://www.natgeokids.com",
-  "https://encyclopedia.pub",
-  "https://www.bbc.co.uk/bitesize",
-  "https://www.kiddle.co",
-  "https://www.commonsense.org/education"
+  "https://example.com",
+  "https://another-favorite.com",
+  "https://fcooperation-phone-accessories.blogspot.com/?m=1",
 ];
 
 // Utils
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
 
+async function uploadToSupabaseStorage(filePath, folderName) {
+  const fileBuffer = fs.readFileSync(filePath);
+  const fileName = path.basename(filePath);
+  const supabasePath = `${folderName}/${fileName}`; // e.g., example.com/page-abc123.html
 
+  const { error } = await supabase.storage
+    .from(SUPABASE_BUCKET)
+    .upload(supabasePath, fileBuffer, {
+      contentType: getMimeType(fileName),
+      upsert: true,
+    });
+
+  if (error) {
+    console.error(`❌ Failed to upload ${fileName}:`, error.message);
+  } else {
+    console.log(`✅ Uploaded to Supabase: ${supabasePath}`);
+  }
+}
 
 // Get MIME type from extension
 function getMimeType(filename) {
@@ -202,16 +197,14 @@ async function downloadFile(fileUrl, outputPath) {
     if (size && size > MAX_FILE_SIZE) return false;
     const response = await axios({ url: fileUrl, method: "GET", responseType: "arraybuffer" });
     fs.writeFileSync(outputPath, response.data);
-    
-
-
+    await uploadToSupabaseStorage(filepath, "html");
+const domainFolder = new URL(fileUrl).hostname.replace(/^www\./, "");
+await uploadToSupabaseStorage(outputPath, domainFolder);
+return true;
     return true;
   } catch {
     return false;
   }
-  
-
-
 }
 
 // Rewrite and save assets
@@ -302,7 +295,7 @@ async function crawl(url, depth = 0) {
 
   await rewriteAssets($, url, pageHash);
   fs.writeFileSync(filepath, $.html(), "utf8");
-  
+  await uploadToSupabaseStorage(filepath, "html");
 
   // Add current page to search index
 
@@ -328,62 +321,6 @@ async function crawl(url, depth = 0) {
   content_fingerprint: contentFingerprint,
   js_rendered: usedPuppeteer,
 };
-
-  // Extracted text
-const rawText = $("body").text().trim();
-const headings = $("h1,h2,h3").map((_, el) => $(el).text().trim()).get();
-const summary = rawText.split(" ").slice(0, 50).join(" ") + "..."; // Simple snippet
-
-const faiData = {
-  url,
-  title,
-  domain: new URL(url).hostname,
-  language: lang,
-  raw_text: rawText,
-  headings,
-  summary,
-  html_filename: filename,
-  js_rendered: usedPuppeteer,
-  canonical_url: canonical,
-  content_fingerprint: contentFingerprint,
-  image_filenames: $("img").map((_, img) => $(img).attr("src")).get(),
-  file_urls: [], // Will push below
-  file_types: [],
-  file_sizes: [],
-  file_thumbnails: [],
-  extracted_file_texts: [],
-};
-
-// Push downloaded files into faiData
-$("a[href]").each(async (_, el) => {
-  const href = $(el).attr("href");
-  if (!href) return;
-  const ext = path.extname(href).toLowerCase();
-  if ([".pdf", ".zip", ".mp3", ".docx"].includes(ext)) {
-    const absUrl = new URL(href, url).href;
-    const outPath = path.join(outputDir, path.basename(absUrl));
-    const success = await downloadFile(absUrl, outPath);
-    if (success) {
-      faiData.file_urls.push(absUrl);
-      faiData.file_types.push(ext.slice(1));
-      try {
-        const head = await axios.head(absUrl);
-        const size = parseInt(head.headers["content-length"] || "0");
-        faiData.file_sizes.push(size);
-      } catch {
-        faiData.file_sizes.push(null);
-      }
-    }
-  }
-});
-
-// Upload to Supabase
-const { error: faiError } = await supabase.from("faitrainingdata").insert(faiData);
-if (faiError) {
-  console.error(`❌ Failed to insert into faitrainingdata: ${url}`, faiError.message);
-} else {
-  console.log(`📡 Added to faitrainingdata: ${url}`);
-}
 
 searchIndex.push(searchItem); // Save locally to file as backup
 
