@@ -36,9 +36,31 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://example.com",
-  "https://another-favorite.com",
-  "https://fcooperation-phone-accessories.blogspot.com/?m=1",
+  "https://simple.wikipedia.org",
+  "https://en.wikipedia.org",
+  "https://www.wiktionary.org",
+  "https://www.wikibooks.org",
+  "https://www.wikiversity.org",
+  "https://www.wikivoyage.org",
+  "https://www.wikinews.org",
+  "https://www.britannica.com",
+  "https://www.infoplease.com",
+  "https://www.factmonster.com",
+  "https://www.worldatlas.com",
+  "https://www.nationalgeographic.com",
+  "https://www.howstuffworks.com",
+  "https://www.ducksters.com",
+  "https://kids.britannica.com",
+  "https://www.teachervision.com",
+  "https://www.scientificamerican.com",
+  "https://www.history.com/topics",
+  "https://www.livescience.com",
+  "https://www.space.com",
+  "https://www.natgeokids.com",
+  "https://encyclopedia.pub",
+  "https://www.bbc.co.uk/bitesize",
+  "https://www.kiddle.co",
+  "https://www.commonsense.org/education"
 ];
 
 // Utils
