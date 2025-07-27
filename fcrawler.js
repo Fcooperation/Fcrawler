@@ -309,17 +309,7 @@ async function crawl(url, depth = 0) {
   const lang = $("html").attr("lang") || "unknown";
   const canonical = $('link[rel="canonical"]').attr("href") || url;
 
-  searchIndex.push({
-    title,
-    url,
-    canonical,
-    filename,
-    js_rendered: usedPuppeteer,
-    language: lang,
-    text: cleanText.slice(0, 500),
-    content_fingerprint: contentFingerprint,
-  });
-
+  
   $("a[href]").each(async (_, el) => {
     const href = $(el).attr("href");
     if (!href) return;
