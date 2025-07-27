@@ -197,6 +197,7 @@ async function downloadFile(fileUrl, outputPath) {
     if (size && size > MAX_FILE_SIZE) return false;
     const response = await axios({ url: fileUrl, method: "GET", responseType: "arraybuffer" });
     fs.writeFileSync(outputPath, response.data);
+    await uploadToSupabaseStorage(filepath, "html");
 const domainFolder = new URL(fileUrl).hostname.replace(/^www\./, "");
 await uploadToSupabaseStorage(outputPath, domainFolder);
 return true;
@@ -369,14 +370,7 @@ function saveIndex() {
 
   saveIndex();
 
-  // Upload all .html files in output folder to bucket
-const allFiles = fs.readdirSync(outputDir);
-for (const file of allFiles) {
-  if (file.endsWith(".html")) {
-    const fullPath = path.join(outputDir, file);
-    await uploadToSupabaseStorage(fullPath, "html");
-  }
-}
+
   // Upload search_index.json to Supabase Table
   const indexJsonPath = path.join(outputDir, "search_index.json");
   const indexData = JSON.parse(fs.readFileSync(indexJsonPath, "utf8"));
