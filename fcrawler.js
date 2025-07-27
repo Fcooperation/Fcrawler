@@ -36,9 +36,31 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://example.com",
-  "https://another-favorite.com",
-  "https://fcooperation-phone-accessories.blogspot.com/?m=1",
+  "https://en.wikipedia.org",                  // General reference encyclopedia
+  "https://www.britannica.com",               // Scholarly encyclopedia
+  "https://www.infoplease.com",               // General reference (encyclopedia, dictionary, atlas)
+  "https://www.factmonster.com",              // Kid-friendly reference
+  "https://www.worldatlas.com",               // World maps, countries, geography
+  "https://www.cia.gov/the-world-factbook",   // Country data and stats
+  "https://dictionary.cambridge.org",         // English dictionary
+  "https://www.merriam-webster.com",          // Dictionary & thesaurus
+  "https://www.thesaurus.com",                // Synonyms/antonyms
+  "https://www.oxfordreference.com",          // Academic reference library
+  "https://www.etymonline.com",               // Word origin (etymology)
+  "https://www.wolframalpha.com",             // Computational facts/answers
+  "https://openlibrary.org",                  // Open-access books and references
+  "https://www.geonames.org",                 // Geographical names and coordinates
+  "https://plato.stanford.edu",               // Stanford Encyclopedia of Philosophy
+  "https://www.law.cornell.edu",              // U.S. legal reference (LII)
+  "https://www.ncbi.nlm.nih.gov",             // Biomedical literature & PubMed
+  "https://www.nature.com",                   // Science and research references
+  "https://academic.oup.com",                 // Oxford University research journals
+  "https://link.springer.com",                // Springer journals (science, math, law)
+  "https://www.imdb.com",                     // Reference for films/media
+  "https://www.goodreads.com",                // Books, authors, and literature ratings
+  "https://mathworld.wolfram.com",            // Math reference encyclopedia
+  "https://earthobservatory.nasa.gov",        // NASA Earth science data and visuals
+  "https://www.archive.org",                  // Internet Archive (books, reference docs)
 ];
 
 // Utils
