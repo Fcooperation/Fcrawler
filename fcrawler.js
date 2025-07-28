@@ -36,7 +36,7 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://en.wiktionary.org/wiki/Main_Page",
+  "https://en.wiktionary.org/wiki/Category:English_lemmas",
 ];
 
 // Utils
