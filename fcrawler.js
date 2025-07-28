@@ -265,7 +265,9 @@ function extractLinks($, baseUrl) {
 
 // Main crawler
 async function crawl(url, depth = 0) {
-  if (visited.has(url) || depth > 2) return;
+  if (visited.has(url) || checkpoint[url] === "done" || depth > 2) {
+  
+  } return;
   visited.add(url);
 
   const robots = await getRobots(url);
