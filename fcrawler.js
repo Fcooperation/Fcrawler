@@ -247,6 +247,7 @@ async function rewriteAssets($, baseUrl, pageHash) {
 // Extract links
 function extractLinks($, baseUrl) {
   const links = new Set();
+
   $("a[href]").each((_, el) => {
     try {
       const href = $(el).attr("href");
@@ -254,6 +255,17 @@ function extractLinks($, baseUrl) {
       if (abs.startsWith("http")) links.add(abs);
     } catch {}
   });
+
+  // Special: Also add "next page" if available
+  const nextPage = $('a:contains("next page")').attr("href") || $('a:contains("Next page")').attr("href");
+  if (nextPage) {
+    try {
+      const nextAbs = new URL(nextPage, baseUrl).href;
+      links.add(nextAbs);
+      console.log(`➡️ Next page discovered: ${nextAbs}`);
+    } catch {}
+  }
+
   return Array.from(links);
 }
 
