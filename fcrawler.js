@@ -36,7 +36,7 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://wordnetweb.princeton.edu/perl/webwn",
+  "https://en.wiktionary.org/wiki/Main_Page",
 ];
 
 // Utils
