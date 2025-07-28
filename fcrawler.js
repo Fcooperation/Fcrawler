@@ -37,6 +37,10 @@ const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
   "https://en.wiktionary.org/wiki/Category:English_lemmas",
+  "https://en.wiktionary.org/wiki/Category:English_nouns",
+  "https://en.wiktionary.org/wiki/Category:English_verbs",
+  "https://en.wiktionary.org/wiki/Category:English_adjectives",
+  "https://en.wiktionary.org/wiki/Category:English_adverbs"
 ];
 
 // Utils
