@@ -35,12 +35,6 @@ const crawlQueue = [];
 const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
-// ✅ Checkpoint system
-const checkpointPath = path.join(__dirname, "checkpoint.json");
-let checkpoint = {};
-if (fs.existsSync(checkpointPath)) {
-  checkpoint = JSON.parse(fs.readFileSync(checkpointPath));
-}
 const PRIORITY_DOMAINS = [
   'https://www.nature.com',
   'https://www.sciencemag.org',
@@ -265,9 +259,7 @@ function extractLinks($, baseUrl) {
 
 // Main crawler
 async function crawl(url, depth = 0) {
-  if (visited.has(url) || checkpoint[url] === "done") {
-  
-  } return;
+  if (visited.has(url) || depth > 2) return;
   visited.add(url);
 
   const robots = await getRobots(url);
@@ -395,8 +387,6 @@ function saveIndex() {
     fs.writeFileSync(sitemapPath, discoveredSitemaps.join("\n"));
     console.log("🗺️ Discovered sitemaps saved.");
   }
-  checkpoint[url] = "done";
-fs.writeFileSync(checkpointPath, JSON.stringify(checkpoint, null, 2));
 }
 
 // Entry point
