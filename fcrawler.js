@@ -36,11 +36,7 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  'https://www.nature.com',
-  'https://www.sciencemag.org',
-  'https://www.plos.org',
-  'https://arxiv.org',
-  'https://www.ncbi.nlm.nih.gov'
+  "https://en.wiktionary.org/wiki/Category:English_lemmas"
 ];
 
 // Utils
