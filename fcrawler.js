@@ -36,11 +36,9 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://en.wiktionary.org/wiki/Category:English_lemmas",
-  "https://en.wiktionary.org/wiki/Category:English_nouns",
-  "https://en.wiktionary.org/wiki/Category:English_verbs",
-  "https://en.wiktionary.org/wiki/Category:English_adjectives",
-  "https://en.wiktionary.org/wiki/Category:English_adverbs"
+  "https://example.com",
+  "https://another-favorite.com",
+  "https://fcooperation-phone-accessories.blogspot.com/?m=1",
 ];
 
 // Utils
@@ -143,11 +141,11 @@ async function fetchWithAxios(url) {
 
 // Puppeteer rendering with scroll
 async function renderPageWithPuppeteer(url) {
-  
-    console.warn(`⚠️ Ignoring robots.txt (puppeteer): ${url}`);
-// Robots.txt check disabled for Puppeteer
-    
-  
+  const robots = await getRobots(url);
+  if (!robots.isAllowed(url, "*")) {
+    console.warn(`🚫 Blocked by robots.txt for '*': ${url}`);
+    return null;
+  }
 
   await throttleDomain(url);
 
@@ -247,7 +245,6 @@ async function rewriteAssets($, baseUrl, pageHash) {
 // Extract links
 function extractLinks($, baseUrl) {
   const links = new Set();
-
   $("a[href]").each((_, el) => {
     try {
       const href = $(el).attr("href");
@@ -255,30 +252,19 @@ function extractLinks($, baseUrl) {
       if (abs.startsWith("http")) links.add(abs);
     } catch {}
   });
-
-  // Special: Also add "next page" if available
-  const nextPage = $('a:contains("next page")').attr("href") || $('a:contains("Next page")').attr("href");
-  if (nextPage) {
-    try {
-      const nextAbs = new URL(nextPage, baseUrl).href;
-      links.add(nextAbs);
-      console.log(`➡️ Next page discovered: ${nextAbs}`);
-    } catch {}
-  }
-
   return Array.from(links);
 }
 
 // Main crawler
 async function crawl(url, depth = 0) {
-  if (visited.has(url)) return;
+  if (visited.has(url) || depth > 2) return;
   visited.add(url);
 
-  
-    console.warn(`⚠️ Ignoring robots.txt: ${url}`);
-// Robots.txt check disabled
-    
-  
+  const robots = await getRobots(url);
+  if (!robots.isAllowed(url, "*")) {
+    console.warn(`🚫 Blocked by robots.txt: ${url}`);
+    return;
+  }
 
   console.log(`🔍 Crawling: ${url}`);
 
@@ -399,10 +385,6 @@ function saveIndex() {
   }
 
   saveIndex();
-
-  for (const sitemapUrl of discoveredSitemaps) {
-  crawlQueue.push({ url: sitemapUrl, depth: 0 });
-}
 
 
   
