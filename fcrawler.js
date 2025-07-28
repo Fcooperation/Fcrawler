@@ -36,9 +36,11 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://example.com",
-  "https://another-favorite.com",
-  "https://fcooperation-phone-accessories.blogspot.com/?m=1",
+  'https://www.nature.com',
+  'https://www.sciencemag.org',
+  'https://www.plos.org',
+  'https://arxiv.org',
+  'https://www.ncbi.nlm.nih.gov'
 ];
 
 // Utils
