@@ -36,9 +36,8 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://en.wiktionary.org/wiki/Category:English_lemmas"
+  "https://www.livescience.com/"
 ];
-
 // Utils
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const hash = (str) => crypto.createHash("md5").update(str).digest("hex").substring(0, 12);
