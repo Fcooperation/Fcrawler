@@ -265,7 +265,7 @@ function extractLinks($, baseUrl) {
 
 // Main crawler
 async function crawl(url, depth = 0) {
-  if (visited.has(url) || checkpoint[url] === "done" || depth > 2) {
+  if (visited.has(url) || checkpoint[url] === "done") {
   
   } return;
   visited.add(url);
@@ -395,6 +395,8 @@ function saveIndex() {
     fs.writeFileSync(sitemapPath, discoveredSitemaps.join("\n"));
     console.log("🗺️ Discovered sitemaps saved.");
   }
+  checkpoint[url] = "done";
+fs.writeFileSync(checkpointPath, JSON.stringify(checkpoint, null, 2));
 }
 
 // Entry point
