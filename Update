@@ -36,9 +36,11 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://example.com",
-  "https://another-favorite.com",
-  "https://fcooperation-phone-accessories.blogspot.com/?m=1",
+  'https://www.nature.com',
+  'https://www.sciencemag.org',
+  'https://www.plos.org',
+  'https://arxiv.org',
+  'https://www.ncbi.nlm.nih.gov'
 ];
 
 // Utils
@@ -333,6 +335,26 @@ if (error) {
   console.error(`❌ Failed to insert: ${url}`, error.message);
 } else {
   console.log(`📥 Inserted to searchindex: ${url}`);
+}
+
+// 🧠 Upload same page to faitrainingdata
+const faiData = {
+  url,
+  title,
+  html_filename: filename,
+  lang,
+  content: cleanText,
+  fingerprint: contentFingerprint,
+};
+
+const { error: faiError } = await supabase
+  .from("faitrainingdata")
+  .insert(faiData);
+
+if (faiError) {
+  console.error(`❌ Failed to insert to faitrainingdata: ${url}`, faiError.message);
+} else {
+  console.log(`📘 Inserted to faitrainingdata: ${url}`);
 }
 
   
