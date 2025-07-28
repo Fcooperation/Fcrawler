@@ -337,6 +337,26 @@ if (error) {
   console.log(`📥 Inserted to searchindex: ${url}`);
 }
 
+// 🧠 Upload same page to faitrainingdata
+const faiData = {
+  url,
+  title,
+  html_filename: filename,
+  lang,
+  content: cleanText,
+  fingerprint: contentFingerprint,
+};
+
+const { error: faiError } = await supabase
+  .from("faitrainingdata")
+  .insert(faiData);
+
+if (faiError) {
+  console.error(`❌ Failed to insert to faitrainingdata: ${url}`, faiError.message);
+} else {
+  console.log(`📘 Inserted to faitrainingdata: ${url}`);
+}
+
   
   $("a[href]").each(async (_, el) => {
     const href = $(el).attr("href");
