@@ -139,12 +139,11 @@ async function fetchWithAxios(url) {
 
 // Puppeteer rendering with scroll
 async function renderPageWithPuppeteer(url) {
-  const robots = await getRobots(url);
-  if (!robots.isAllowed(url, "*")) {
+  
     console.warn(`⚠️ Ignoring robots.txt (puppeteer): ${url}`);
 // Robots.txt check disabled for Puppeteer
-    return null;
-  }
+    
+  
 
   await throttleDomain(url);
 
@@ -259,12 +258,11 @@ async function crawl(url, depth = 0) {
   if (visited.has(url)) return;
   visited.add(url);
 
-  const robots = await getRobots(url);
-  if (!robots.isAllowed(url, "*")) {
+  
     console.warn(`⚠️ Ignoring robots.txt: ${url}`);
 // Robots.txt check disabled
-    return;
-  }
+    
+  
 
   console.log(`🔍 Crawling: ${url}`);
 
