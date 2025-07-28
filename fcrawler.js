@@ -35,6 +35,12 @@ const crawlQueue = [];
 const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
+// ✅ Checkpoint system
+const checkpointPath = path.join(__dirname, "checkpoint.json");
+let checkpoint = {};
+if (fs.existsSync(checkpointPath)) {
+  checkpoint = JSON.parse(fs.readFileSync(checkpointPath));
+}
 const PRIORITY_DOMAINS = [
   'https://www.nature.com',
   'https://www.sciencemag.org',
