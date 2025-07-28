@@ -279,7 +279,7 @@ function extractLinks($, baseUrl) {
 
 // Main crawler
 async function crawl(url, depth = 0) {
-  if (visited.has(url) || depth > 2) return;
+  if (visited.has(url)) return;
   visited.add(url);
 
   const robots = await getRobots(url);
@@ -407,6 +407,10 @@ function saveIndex() {
   }
 
   saveIndex();
+
+  for (const sitemapUrl of discoveredSitemaps) {
+  crawlQueue.push({ url: sitemapUrl, depth: 0 });
+}
 
 
   
