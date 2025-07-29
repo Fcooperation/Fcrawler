@@ -60,7 +60,7 @@ const fingerprintsSeen = new Set();
 const discoveredSitemaps = [];
 
 const PRIORITY_DOMAINS = [
-  "https://www.reuter.com/"
+  "https://www.livescience.com/sitemap"
 ];
 // Utils
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
