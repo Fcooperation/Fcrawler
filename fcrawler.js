@@ -134,6 +134,7 @@ function getMimeType(filename) {
   if (ext === ".pdf") return "application/pdf";
   if (ext === ".mp3") return "audio/mpeg";
   if (ext === ".zip") return "application/zip";
+  if (ext === ".ico") return "image/x-icon";
   return "application/octet-stream";
 }
 
