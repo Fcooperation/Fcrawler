@@ -61,6 +61,45 @@ async function uploadToSupabaseStorage(filePath, folderName) {
   }
 }
 
+const xml2js = require("xml2js");
+
+async function parseSitemap(url) {
+  try {
+    const { data } = await axios.get(url, { headers: { "User-Agent": USER_AGENT } });
+    const parsed = await xml2js.parseStringPromise(data);
+    const urls = [];
+
+    // Handle sitemapindex (nested sitemaps)
+    if (parsed.sitemapindex && parsed.sitemapindex.sitemap) {
+      for (const sm of parsed.sitemapindex.sitemap) {
+        if (sm.loc && sm.loc[0]) {
+          const nestedUrl = sm.loc[0].trim();
+          if (!discoveredSitemaps.includes(nestedUrl)) {
+            discoveredSitemaps.push(nestedUrl);
+            const nestedUrls = await parseSitemap(nestedUrl);
+            urls.push(...nestedUrls);
+          }
+        }
+      }
+    }
+
+    // Handle regular sitemap
+    if (parsed.urlset && parsed.urlset.url) {
+      for (const entry of parsed.urlset.url) {
+        if (entry.loc && entry.loc[0]) {
+          const pageUrl = entry.loc[0].trim();
+          urls.push(pageUrl);
+        }
+      }
+    }
+
+    return urls;
+  } catch (err) {
+    console.warn(`❌ Failed to parse sitemap: ${url}`, err.message);
+    return [];
+  }
+        }
+
 // Get MIME type from extension
 function getMimeType(filename) {
   const ext = path.extname(filename).toLowerCase();
