@@ -477,6 +477,17 @@ function saveIndex() {
     await crawl(url, depth);
   }
 
+  // 🗺️ Parse sitemaps found from robots.txt
+for (const sitemapUrl of discoveredSitemaps) {
+  console.log(`📡 Parsing sitemap: ${sitemapUrl}`);
+  const urls = await parseSitemap(sitemapUrl);
+  for (const u of urls) {
+    if (!visited.has(u)) {
+      crawlQueue.push({ url: u, depth: 0 });
+    }
+  }
+}
+
   saveIndex();
 
 
