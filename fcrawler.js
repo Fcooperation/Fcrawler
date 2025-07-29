@@ -477,14 +477,21 @@ function saveIndex() {
     await crawl(url, depth);
   }
 
-  // 🗺️ Parse sitemaps found from robots.txt
-for (const sitemapUrl of discoveredSitemaps) {
+  // ⬅️ New: Handle discovered sitemaps dynamically
+while (discoveredSitemaps.length > 0) {
+  const sitemapUrl = discoveredSitemaps.shift();
   console.log(`📡 Parsing sitemap: ${sitemapUrl}`);
   const urls = await parseSitemap(sitemapUrl);
   for (const u of urls) {
     if (!visited.has(u)) {
       crawlQueue.push({ url: u, depth: 0 });
     }
+  }
+
+  // Process any new crawlQueue items immediately
+  while (crawlQueue.length > 0) {
+    const { url, depth } = crawlQueue.shift();
+    await crawl(url, depth);
   }
 }
 
