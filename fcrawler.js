@@ -279,28 +279,37 @@ async function crawl(url, depth = 0) {
   const $ = cheerio.load(html);
 
   // 🧿 Handle <link rel="icon"> and upload favicon
-$('link[rel~="icon"]').each(async (_, el) => {
-  const iconHref = $(el).attr("href");
-  if (!iconHref || iconHref.startsWith("data:")) return;
-  try {
-    const iconUrl = new URL(iconHref, url).href;
-    const ext = path.extname(iconUrl).split("?")[0] || ".ico";
-    const iconName = `${hash(iconUrl)}${ext}`;
-    const iconPath = path.join(outputDir, iconName);
-    if (!fs.existsSync(iconPath)) {
-      const res = await axios.get(iconUrl, {
-        responseType: "arraybuffer",
-        headers: { "User-Agent": USER_AGENT },
-      });
-      fs.writeFileSync(iconPath, res.data);
-      console.log(`🌟 Downloaded favicon: ${iconUrl}`);
+let faviconPath = null;
+
+const iconEl = $('link[rel~="icon"]').first();
+if (iconEl.length > 0) {
+  const iconHref = iconEl.attr("href");
+  if (iconHref && !iconHref.startsWith("data:")) {
+    try {
+      const iconUrl = new URL(iconHref, url).href;
+      const ext = path.extname(iconUrl).split("?")[0] || ".ico";
+      const iconName = `${hash(iconUrl)}${ext}`;
+      const iconPath = path.join(outputDir, iconName);
       const domainFolder = new URL(url).hostname.replace(/^www\./, "");
-      await uploadToSupabaseStorage(iconPath, domainFolder);
+
+      faviconPath = `${domainFolder}/${iconName}`; // ✅ Set faviconPath here
+
+      if (!fs.existsSync(iconPath)) {
+        const res = await axios.get(iconUrl, {
+          responseType: "arraybuffer",
+          headers: { "User-Agent": USER_AGENT },
+        });
+        fs.writeFileSync(iconPath, res.data);
+        console.log(`🌟 Downloaded favicon: ${iconUrl}`);
+        await uploadToSupabaseStorage(iconPath, domainFolder);
+      }
+    } catch (err) {
+      console.warn(`⚠️ Failed to download favicon: ${iconHref}`, err.message);
     }
-  } catch (err) {
-    console.warn(`⚠️ Failed to download favicon: ${iconHref}`, err.message);
   }
-});
+}
+
+  
 
   // 🛑 Skip if <meta name="robots" content="noindex">
   const metaRobots = $('meta[name="robots"]').attr("content");
@@ -341,6 +350,7 @@ $('link[rel~="icon"]').each(async (_, el) => {
   canonical,
   content_fingerprint: contentFingerprint,
   js_rendered: usedPuppeteer,
+  favicon: faviconPath || null, // ✅ Add this
 };
 
 searchIndex.push(searchItem); // Save locally to file as backup
@@ -355,6 +365,7 @@ if (error) {
 } else {
   console.log(`📥 Inserted to searchindex: ${url}`);
 }
+  
 
 // 🧠 Upload same page to faitrainingdata
 const faiData = {
