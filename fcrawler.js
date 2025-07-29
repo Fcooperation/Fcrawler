@@ -278,6 +278,30 @@ async function crawl(url, depth = 0) {
 
   const $ = cheerio.load(html);
 
+  // 🧿 Handle <link rel="icon"> and upload favicon
+$('link[rel~="icon"]').each(async (_, el) => {
+  const iconHref = $(el).attr("href");
+  if (!iconHref || iconHref.startsWith("data:")) return;
+  try {
+    const iconUrl = new URL(iconHref, url).href;
+    const ext = path.extname(iconUrl).split("?")[0] || ".ico";
+    const iconName = `${hash(iconUrl)}${ext}`;
+    const iconPath = path.join(outputDir, iconName);
+    if (!fs.existsSync(iconPath)) {
+      const res = await axios.get(iconUrl, {
+        responseType: "arraybuffer",
+        headers: { "User-Agent": USER_AGENT },
+      });
+      fs.writeFileSync(iconPath, res.data);
+      console.log(`🌟 Downloaded favicon: ${iconUrl}`);
+      const domainFolder = new URL(url).hostname.replace(/^www\./, "");
+      await uploadToSupabaseStorage(iconPath, domainFolder);
+    }
+  } catch (err) {
+    console.warn(`⚠️ Failed to download favicon: ${iconHref}`, err.message);
+  }
+});
+
   // 🛑 Skip if <meta name="robots" content="noindex">
   const metaRobots = $('meta[name="robots"]').attr("content");
   if (metaRobots && /noindex/i.test(metaRobots)) {
