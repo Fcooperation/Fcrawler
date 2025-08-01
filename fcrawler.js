@@ -1,110 +1,84 @@
-// fcrawler1.0 crawler with robots.txt check, axios+cheerio fallback, puppeteer-core render
-
 const axios = require("axios");
 const cheerio = require("cheerio");
 const puppeteer = require("puppeteer-core");
-const chromium = require("chrome-aws-lambda"); // or path to Chromium
-const urlLib = require("url");
+const robotsParser = require("robots-parser");
+const { URL } = require("url");
 
-// The site to crawl
-const targetUrl = "https://example.com";
-
-// User agent
+const CHROMIUM_PATH = "/usr/bin/chromium-browser"; // change if needed
 const USER_AGENT = "fcrawler1.0";
+const START_URL = "https://example.com"; // your test site
 
-// === Function to parse robots.txt ===
-async function isBlockedByRobots(url, userAgent = USER_AGENT) {
+// Get and parse robots.txt
+async function checkRobotsPermission(siteUrl, crawlerAgent) {
   try {
-    const { hostname, protocol } = new URL(url);
-    const robotsUrl = `${protocol}//${hostname}/robots.txt`;
+    const base = new URL(siteUrl).origin;
+    const robotsUrl = `${base}/robots.txt`;
+    const res = await axios.get(robotsUrl, { headers: { "User-Agent": crawlerAgent } });
 
-    const res = await axios.get(robotsUrl, { timeout: 5000 });
-    const lines = res.data.split("\n");
+    const robots = robotsParser(robotsUrl, res.data);
+    const allowed = robots.isAllowed(siteUrl, crawlerAgent);
 
-    let allowed = true;
-    let currentUserAgent = null;
-
-    for (let line of lines) {
-      line = line.trim();
-      if (line.toLowerCase().startsWith("user-agent:")) {
-        currentUserAgent = line.split(":")[1].trim().toLowerCase();
-      } else if (line.toLowerCase().startsWith("disallow:")) {
-        const path = line.split(":")[1].trim();
-        if (
-          (currentUserAgent === "*" || currentUserAgent === userAgent.toLowerCase()) &&
-          urlLib.parse(url).pathname.startsWith(path)
-        ) {
-          allowed = false;
-        }
-      }
-    }
-
-    return !allowed; // true = blocked
+    console.log(`🤖 Robots.txt check for ${crawlerAgent}: ${allowed ? "Allowed" : "Disallowed"}`);
+    return allowed;
   } catch (err) {
-    return false; // No robots.txt or failed to fetch — assume allowed
+    console.warn("⚠️ robots.txt fetch failed — assuming allowed.");
+    return true; // If robots.txt isn't found, proceed
   }
 }
 
-// === Try crawling with axios + cheerio ===
-async function crawlWithAxios(url) {
+// Try Axios + Cheerio first
+async function tryAxiosCheerio(url) {
   try {
-    const res = await axios.get(url, {
+    const response = await axios.get(url, {
       headers: { "User-Agent": USER_AGENT },
       timeout: 10000,
     });
-
-    const $ = cheerio.load(res.data);
+    const $ = cheerio.load(response.data);
     const title = $("title").text().trim();
-    console.log("✅ Axios success:", title || "no title");
-    return res.data;
+    console.log("📄 Axios Success:", title);
+    return true;
   } catch (err) {
-    console.warn("⚠️ Axios failed:", err.message);
-    return null;
+    console.warn("❌ Axios failed, will try Puppeteer:", err.message);
+    return false;
   }
 }
 
-// === Fallback: Puppeteer render ===
-async function crawlWithPuppeteer(url) {
+// Fallback to Puppeteer
+async function tryPuppeteer(url) {
   try {
     const browser = await puppeteer.launch({
-      executablePath: await chromium.executablePath,
+      executablePath: CHROMIUM_PATH,
       headless: true,
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
 
     const page = await browser.newPage();
     await page.setUserAgent(USER_AGENT);
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 15000 });
-
-    const html = await page.content();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
     const title = await page.title();
-    console.log("✅ Puppeteer success:", title || "no title");
-
+    console.log("🤖 Puppeteer Success:", title);
     await browser.close();
-    return html;
+    return true;
   } catch (err) {
-    console.error("❌ Puppeteer failed:", err.message);
-    return null;
+    console.error("💥 Puppeteer failed:", err.message);
+    return false;
   }
 }
 
-// === Main crawl logic ===
+// MAIN FLOW
 (async () => {
-  const blocked = await isBlockedByRobots(targetUrl);
-  if (blocked) {
-    console.log("❌ Blocked by robots.txt for fcrawler1.0");
+  console.log("🚀 Starting crawl:", START_URL);
+
+  const allowed = await checkRobotsPermission(START_URL, USER_AGENT);
+  if (!allowed) {
+    console.log("⛔️ Access denied by robots.txt — Exiting.");
     return;
   }
 
-  let html = await crawlWithAxios(targetUrl);
-  if (!html || html.length < 100) {
-    html = await crawlWithPuppeteer(targetUrl);
+  const axiosWorked = await tryAxiosCheerio(START_URL);
+  if (!axiosWorked) {
+    await tryPuppeteer(START_URL);
   }
 
-  if (html) {
-    console.log("✅ Final result: Got HTML of length", html.length);
-  } else {
-    console.log("❌ Could not get page content");
-  }
+  console.log("✅ Finished crawling:", START_URL);
 })();
