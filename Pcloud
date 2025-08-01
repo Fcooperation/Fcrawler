@@ -7,7 +7,7 @@ const FormData = require('form-data');
 
 // --- CONFIG SECTION ---
 const VIDEO_URL = 'https://vm.tiktok.com/ZMSwR9pnE/';
-const P_CLOUD_AUTH = 'your_auth_token_here'; // Paste your token here securely
+const P_CLOUD_AUTH = '0Ig470ZsOdg7Z0sX5QYSOs2SnylhpDGsAt5kWoYzX'; // Paste your token here securely
 const SCREENSHOT_PATH = 'video_thumbnail.png';
 
 // --- Function to launch Chromium and screenshot video only ---
