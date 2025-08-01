@@ -1,78 +1,56 @@
-// Requires: puppeteer-core, axios, fs, path, form-data
-const puppeteer = require('puppeteer-core');
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
-const FormData = require('form-data');
+const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
-// --- CONFIG SECTION ---
-const VIDEO_URL = 'https://vm.tiktok.com/ZMSwR9pnE/';
-const P_CLOUD_AUTH = '0Ig470ZsOdg7Z0sX5QYSOs2SnylhpDGsAt5kWoYzX'; // Paste your token here securely
-const SCREENSHOT_PATH = 'video_thumbnail.png';
+// 🔐 Replace these with your real pCloud login credentials
+const PCLOUD_EMAIL = "nwankwofrancis2009@gmail.com";
+const PCLOUD_PASSWORD = "Onyedika";
 
-// --- Function to launch Chromium and screenshot video only ---
-async function captureVideoOnlyScreenshot(url) {
-  const browser = await puppeteer.launch({
-    executablePath: '/usr/bin/chromium', // Adjust if using Chromium on Termux
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-  const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 0 });
+// 🔽 The file you want to upload
+const FILE_PATH = "video_thumbnail.png";
 
-  // Detect if video is inside iframe
-  const iframes = await page.frames();
-  const videoFrame = iframes.find(f => f.url().includes('tiktok') && f !== page.mainFrame());
-  const frameToUse = videoFrame || page.mainFrame();
-
-  // Try to find video
-  const videoHandle = await frameToUse.$('video');
-  if (!videoHandle) {
-    console.log("❌ No video element found.");
-    await browser.close();
-    return false;
-  }
-
-  const boundingBox = await videoHandle.boundingBox();
-  await videoHandle.screenshot({
-    path: SCREENSHOT_PATH,
-    clip: boundingBox
-  });
-
-  await browser.close();
-  console.log("✅ Video screenshot saved:", SCREENSHOT_PATH);
-  return true;
-}
-
-// --- Upload screenshot and link to pCloud ---
-async function uploadToPcloud(authToken, filePath, videoLink) {
-  const fileStream = fs.createReadStream(filePath);
-  const form = new FormData();
-  form.append('filename', path.basename(filePath));
-  form.append('file', fileStream);
-  form.append('auth', authToken);
-  form.append('folderid', 0); // root folder
-
-  const response = await axios.post('https://api.pcloud.com/uploadfile', form, {
-    headers: form.getHeaders(),
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity
-  });
-
-  if (response.data && response.data.result === 0) {
-    const uploaded = response.data.metadata[0];
-    console.log("✅ Uploaded to pCloud:", uploaded.name);
-    console.log("🔗 Video Link:", videoLink);
-    console.log("🔗 Thumbnail:", `https://filedn.pcloud.com/api/file/${uploaded.fileid}`);
-  } else {
-    console.log("❌ Failed to upload to pCloud", response.data);
-  }
-}
-
-// --- Run everything ---
+// 🔁 Main function
 (async () => {
-  const success = await captureVideoOnlyScreenshot(VIDEO_URL);
-  if (success) {
-    await uploadToPcloud(P_CLOUD_AUTH, SCREENSHOT_PATH, VIDEO_URL);
+  try {
+    // Step 1: Log in to pCloud
+    const loginRes = await axios.get("https://api.pcloud.com/login", {
+      params: {
+        getauth: 1,
+        username: PCLOUD_EMAIL,
+        password: PCLOUD_PASSWORD,
+      },
+    });
+
+    if (loginRes.data.result !== 0) {
+      console.error("❌ Login failed:", loginRes.data);
+      return;
+    }
+
+    const authToken = loginRes.data.auth;
+    console.log("✅ Logged in. Auth token:", authToken);
+
+    // Step 2: Upload file
+    const fileStream = fs.createReadStream(FILE_PATH);
+    const uploadRes = await axios.post(
+      `https://api.pcloud.com/uploadfile?auth=${authToken}&filename=${path.basename(FILE_PATH)}`,
+      require("form-data").prototype.append.call(
+        new (require("form-data"))(),
+        "file",
+        fileStream
+      ),
+      {
+        headers: {
+          ...new (require("form-data"))().getHeaders(),
+        },
+      }
+    );
+
+    if (uploadRes.data.result === 0) {
+      console.log("✅ Upload successful:", uploadRes.data.metadata.name);
+    } else {
+      console.error("❌ Upload failed:", uploadRes.data);
+    }
+  } catch (err) {
+    console.error("❌ Error:", err.message);
   }
 })();
