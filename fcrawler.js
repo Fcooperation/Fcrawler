@@ -1,89 +1,110 @@
-// 🧠 Required modules
-const puppeteer = require("puppeteer");
+// fcrawler1.0 crawler with robots.txt check, axios+cheerio fallback, puppeteer-core render
+
+const axios = require("axios");
 const cheerio = require("cheerio");
-const fs = require("fs");
-const path = require("path");
-const { URL } = require("url");
+const puppeteer = require("puppeteer-core");
+const chromium = require("chrome-aws-lambda"); // or path to Chromium
+const urlLib = require("url");
 
-// 🌐 Start URL
-const startUrl = "https://archive.org";
+// The site to crawl
+const targetUrl = "https://example.com";
 
-// 📁 Folder to save pages
-const saveDir = path.join(__dirname, "pages");
-if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir);
+// User agent
+const USER_AGENT = "fcrawler1.0";
 
-// 📦 Extract domain
-function getDomain(urlStr) {
+// === Function to parse robots.txt ===
+async function isBlockedByRobots(url, userAgent = USER_AGENT) {
   try {
-    return new URL(urlStr).hostname.replace(/^www\./, "");
-  } catch {
+    const { hostname, protocol } = new URL(url);
+    const robotsUrl = `${protocol}//${hostname}/robots.txt`;
+
+    const res = await axios.get(robotsUrl, { timeout: 5000 });
+    const lines = res.data.split("\n");
+
+    let allowed = true;
+    let currentUserAgent = null;
+
+    for (let line of lines) {
+      line = line.trim();
+      if (line.toLowerCase().startsWith("user-agent:")) {
+        currentUserAgent = line.split(":")[1].trim().toLowerCase();
+      } else if (line.toLowerCase().startsWith("disallow:")) {
+        const path = line.split(":")[1].trim();
+        if (
+          (currentUserAgent === "*" || currentUserAgent === userAgent.toLowerCase()) &&
+          urlLib.parse(url).pathname.startsWith(path)
+        ) {
+          allowed = false;
+        }
+      }
+    }
+
+    return !allowed; // true = blocked
+  } catch (err) {
+    return false; // No robots.txt or failed to fetch — assume allowed
+  }
+}
+
+// === Try crawling with axios + cheerio ===
+async function crawlWithAxios(url) {
+  try {
+    const res = await axios.get(url, {
+      headers: { "User-Agent": USER_AGENT },
+      timeout: 10000,
+    });
+
+    const $ = cheerio.load(res.data);
+    const title = $("title").text().trim();
+    console.log("✅ Axios success:", title || "no title");
+    return res.data;
+  } catch (err) {
+    console.warn("⚠️ Axios failed:", err.message);
     return null;
   }
 }
 
-// 📤 Save page content
-function savePage(url, html) {
-  const filename = path.join(
-    saveDir,
-    url.replace(/[^a-zA-Z0-9]/g, "_") + ".html"
-  );
-  fs.writeFileSync(filename, html);
-  console.log(`💾 Saved ${url} -> ${filename}`);
-}
-
-// 🔗 Extract internal links
-function extractLinks(html, currentUrl, baseDomain) {
-  const $ = cheerio.load(html);
-  const links = new Set();
-
-  $("a[href]").each((_, elem) => {
-    let href = $(elem).attr("href").trim();
-    if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-
-    try {
-      const absUrl = new URL(href, currentUrl);
-      if (absUrl.hostname.endsWith(baseDomain)) {
-        links.add(absUrl.href.split("#")[0]);
-      }
-    } catch (e) {}
-  });
-
-  return [...links];
-}
-
-// 🚀 Crawl function
-async function crawl(url, visited = new Set()) {
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
-  const page = await browser.newPage();
-
-  console.log(`🔍 Scanning ${url}`);
+// === Fallback: Puppeteer render ===
+async function crawlWithPuppeteer(url) {
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const browser = await puppeteer.launch({
+      executablePath: await chromium.executablePath,
+      headless: true,
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+    });
+
+    const page = await browser.newPage();
+    await page.setUserAgent(USER_AGENT);
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 15000 });
+
     const html = await page.content();
+    const title = await page.title();
+    console.log("✅ Puppeteer success:", title || "no title");
 
-    savePage(url, html);
-    const baseDomain = getDomain(url);
-    const links = extractLinks(html, url, baseDomain);
-
-    console.log(`🔗 Found ${links.length} internal links`);
-    visited.add(url);
-
-    for (const link of links) {
-      if (!visited.has(link)) {
-        await crawl(link, visited);
-      }
-    }
-  } catch (err) {
-    console.error(`❌ Failed to crawl ${url}:`, err.message);
-  } finally {
     await browser.close();
+    return html;
+  } catch (err) {
+    console.error("❌ Puppeteer failed:", err.message);
+    return null;
   }
 }
 
-// 🎬 Start crawling
-crawl(startUrl).then(() => {
-  console.log("✅ Crawling complete.");
-});
+// === Main crawl logic ===
+(async () => {
+  const blocked = await isBlockedByRobots(targetUrl);
+  if (blocked) {
+    console.log("❌ Blocked by robots.txt for fcrawler1.0");
+    return;
+  }
+
+  let html = await crawlWithAxios(targetUrl);
+  if (!html || html.length < 100) {
+    html = await crawlWithPuppeteer(targetUrl);
+  }
+
+  if (html) {
+    console.log("✅ Final result: Got HTML of length", html.length);
+  } else {
+    console.log("❌ Could not get page content");
+  }
+})();
