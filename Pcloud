@@ -22,7 +22,7 @@ async function takeScreenshot() {
   await page.goto(VIDEO_URL, { waitUntil: "networkidle2", timeout: 0 });
 
   // Wait for iframes to load
-  await page.waitForTimeout(3000); // wait for JS to render content
+  await new Promise(resolve => setTimeout(resolve, 3000)); // wait for JS to render content
 
   const frames = page.frames();
   let videoFrame;
