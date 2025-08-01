@@ -5,11 +5,11 @@ const axios = require("axios");
 const FormData = require("form-data");
 
 // === CONFIG ===
-const VIDEO_URL = "https://vm.tiktok.com/ZMSwR9pnE/"; // Your TikTok URL
-const CHROMIUM_PATH = "/usr/bin/chromium"; // Adjust for Termux/Linux
+const VIDEO_URL = "https://vm.tiktok.com/ZMSwR9pnE/"; // Replace with any video
+const CHROMIUM_PATH = "/usr/bin/chromium"; // Or wherever your Chromium is
 const SCREENSHOT_FILE = "video_thumb.png";
-const PCLOUD_USERNAME = "nwankwofrancis2009@gmail.com";
-const PCLOUD_PASSWORD = "Onyedika";
+const PCLOUD_USERNAME = "nwankwofrancis2009@gmail.com"; // Your email
+const PCLOUD_PASSWORD = "Onyedika"; // Your password
 
 // === 1. Take Video Screenshot ===
 async function takeScreenshot() {
@@ -22,7 +22,6 @@ async function takeScreenshot() {
   const page = await browser.newPage();
   await page.goto(VIDEO_URL, { waitUntil: "networkidle2", timeout: 0 });
 
-  // Detect <video> tag
   const video = await page.$("video");
   if (!video) {
     console.log("❌ No <video> tag found.");
@@ -30,10 +29,9 @@ async function takeScreenshot() {
     return false;
   }
 
-  // Play the video if it's paused
   await video.evaluate((vid) => vid.play());
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  // Take screenshot of only video
+  await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s to play
+
   const clip = await video.boundingBox();
   if (!clip) {
     console.log("❌ Couldn't find video area.");
@@ -51,11 +49,15 @@ async function takeScreenshot() {
 async function getPCloudAuthToken(username, password) {
   const url = `https://api.pcloud.com/login`;
   const res = await axios.get(url, {
-    params: { getauth: 1, username, password }
+    params: { username, password }
   });
 
   if (res.data.result !== 0) {
     throw new Error("❌ Login failed: " + res.data.error);
+  }
+
+  if (!res.data.auth) {
+    throw new Error("❌ Login failed: Missing auth token.");
   }
 
   console.log("🔑 pCloud Auth Token:", res.data.auth);
