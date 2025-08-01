@@ -1,69 +1,68 @@
-const axios = require("axios");
-const cheerio = require("cheerio");
+const puppeteer = require("puppeteer-core");
 const fs = require("fs");
 const path = require("path");
 
 const visited = new Set();
-const maxDepth = 2;
+const maxDepth = 1;
 
-async function crawlPage(currentUrl, depth = 0) {
-  if (visited.has(currentUrl) || depth > maxDepth) return;
-  visited.add(currentUrl);
+async function crawlPage(url, depth = 0) {
+  if (visited.has(url) || depth > maxDepth) return;
+  visited.add(url);
 
-  console.log(`🔍 Scanning ${currentUrl}`);
+  console.log(`🔍 Scanning ${url}`);
 
-  let html;
+  const browser = await puppeteer.launch({
+    executablePath: "/usr/bin/chromium", // Adjust if needed
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
+
+  const page = await browser.newPage();
+
   try {
-    const response = await axios.get(currentUrl, {
-      headers: { "User-Agent": "fcrawler-bot/1.0" },
-      timeout: 10000,
-    });
-    html = response.data;
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 15000 });
   } catch (err) {
-    console.warn(`❌ Failed to fetch ${currentUrl}:`, err.message);
+    console.warn(`❌ Failed to load ${url}:`, err.message);
+    await browser.close();
     return;
   }
 
+  const html = await page.content();
+
   // Save page
-  const safeFilename = currentUrl.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+  const safeFilename = url.replace(/[^a-z0-9]/gi, "_").toLowerCase();
   const savePath = path.join(__dirname, "pages", `${safeFilename}.html`);
   fs.mkdirSync(path.dirname(savePath), { recursive: true });
   fs.writeFileSync(savePath, html);
-  console.log(`💾 Saved ${currentUrl} -> ${savePath}`);
+  console.log(`💾 Saved ${url} -> ${savePath}`);
 
-  // Load and extract links
-  const $ = cheerio.load(html);
-  const links = $("a[href]")
-    .map((i, el) => $(el).attr("href"))
-    .get();
+  // Extract all internal <a href> links
+  const baseURL = new URL(url);
+  const links = await page.$$eval("a[href]", (anchors) =>
+    anchors.map(a => a.href)
+  );
 
-  console.log(`🔗 Extracted ${links.length} links from ${currentUrl}`);
+  const internalLinks = links.filter(link => {
+    try {
+      const target = new URL(link, baseURL);
+      return target.hostname === baseURL.hostname;
+    } catch {
+      return false;
+    }
+  });
 
-  // Filter and normalize internal links
-  const base = new URL(currentUrl);
-  const internalLinks = links
-    .map(link => {
-      try {
-        return new URL(link, base).href;
-      } catch {
-        return null;
-      }
-    })
-    .filter(link => {
-      return link && new URL(link).hostname === base.hostname;
-    });
+  console.log(`🔗 Found ${links.length} links (${internalLinks.length} internal)`);
 
-  console.log(`🔁 ${internalLinks.length} internal links found`);
+  await browser.close();
 
-  // Recursively crawl
+  // Recurse on internal links
   for (const link of internalLinks) {
     await crawlPage(link, depth + 1);
   }
 }
 
-// Start crawling
 (async () => {
-  const startUrl = "https://archive.org";
-  await crawlPage(startUrl);
+  const startURL = "https://archive.org";
+  await crawlPage(startURL);
   console.log("✅ Crawling complete.");
 })();
