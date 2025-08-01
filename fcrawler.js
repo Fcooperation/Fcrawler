@@ -6,7 +6,7 @@ const { URL } = require("url");
 
 const CHROMIUM_PATH = "/usr/bin/chromium-browser"; // change if needed
 const USER_AGENT = "fcrawler1.0";
-const START_URL = "https://example.com"; // your test site
+const START_URL = "https://espn.com"; // your test site
 
 // Get and parse robots.txt
 async function checkRobotsPermission(siteUrl, crawlerAgent) {
