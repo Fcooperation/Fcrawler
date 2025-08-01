@@ -7,7 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const xml2js = require("xml2js");
 
-const CHROMIUM_PATH = "/usr/bin/chromium-browser"; // Update if needed
+const CHROMIUM_PATH = "/usr/bin/chromium-browser";
 const USER_AGENT = "fcrawler1.0";
 const START_URLS = [
   "https://example.com",
@@ -28,7 +28,7 @@ async function checkRobotsPermission(siteUrl, crawlerAgent) {
     const allowed = robots.isAllowed(siteUrl, crawlerAgent);
     console.log(`🤖 Robots.txt check for ${crawlerAgent} @ ${siteUrl}: ${allowed ? "Allowed" : "Disallowed"}`);
     return allowed;
-  } catch (err) {
+  } catch {
     console.warn(`⚠️ robots.txt fetch failed for ${siteUrl} — assuming allowed.`);
     return true;
   }
@@ -37,13 +37,13 @@ async function checkRobotsPermission(siteUrl, crawlerAgent) {
 async function getSitemapUrls(baseUrl) {
   try {
     const res = await axios.get(new URL("/sitemap.xml", baseUrl).href, {
-      headers: { "User-Agent": USER_AGENT }
+      headers: { "User-Agent": USER_AGENT },
     });
     const parsed = await xml2js.parseStringPromise(res.data);
     const urls = parsed.urlset.url.map(u => u.loc[0]);
     console.log(`🗺️ Found ${urls.length} URLs in sitemap for ${baseUrl}`);
     return urls;
-  } catch (err) {
+  } catch {
     console.warn(`⚠️ No sitemap for ${baseUrl}`);
     return [];
   }
@@ -85,14 +85,16 @@ function extractBlockContent($, pageUrl) {
     }
   });
 
-  // Detect common video links not inside <video> tags (like YouTube)
   $("a[href]").each((_, el) => {
     const href = $(el).attr("href");
-    if (
-      href &&
-      /(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|\.mp4|\.webm)/.test(href)
-    ) {
-      const abs = new URL(href, pageUrl).href;
+    if (!href) return;
+    const abs = new URL(href, pageUrl).href;
+    const ext = path.extname(abs).toLowerCase();
+
+    const isVideo = /(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|\.mp4|\.webm)/.test(href);
+    const isDoc = /\.(pdf|zip|docx?|pptx?|xlsx?)$/.test(ext);
+
+    if (isVideo) {
       const filename = path.basename(abs).split("?")[0];
       blocks.push(`
         <a href="${abs}" target="_blank" style="text-decoration:none;">
@@ -100,6 +102,22 @@ function extractBlockContent($, pageUrl) {
             🎥 Video Link
           </div>
           <div style="font-weight:bold;margin-bottom:20px;">${filename}</div>
+        </a>
+      `);
+    } else if (isDoc) {
+      const filename = path.basename(abs).split("?")[0];
+      const icon = ext.includes("pdf")
+        ? "📕"
+        : ext.includes("zip")
+        ? "🗜️"
+        : "📄";
+
+      blocks.push(`
+        <a href="${abs}" target="_blank" style="text-decoration:none;">
+          <div style="width:100%;display:flex;align-items:center;background:#eee;padding:10px;border-radius:8px;margin:10px 0;">
+            <div style="font-size:2rem;margin-right:10px;">${icon}</div>
+            <div style="font-weight:bold;">${filename}</div>
+          </div>
         </a>
       `);
     }
@@ -149,7 +167,6 @@ async function crawlPage(url, base) {
     await saveAsHtml(url, title, blockContent);
     console.log(`📄 Success: [${url}] - "${title}"`);
 
-    // Crawl internal links
     const links = [];
     $("a[href]").each((_, el) => {
       const href = $(el).attr("href");
@@ -164,7 +181,7 @@ async function crawlPage(url, base) {
 
     for (const link of links) {
       await delay(500);
-      await crawlPage(link, base);
+      crawlPage(link, base); // ⚠️ Not awaited — async crawling!
     }
   } catch (err) {
     console.warn(`❌ Failed to crawl ${url}: ${err.message}`);
@@ -174,16 +191,19 @@ async function crawlPage(url, base) {
 (async () => {
   if (!fs.existsSync("output")) fs.mkdirSync("output");
 
-  for (const site of START_URLS) {
-    console.log("🚀 Starting crawl:", site);
-    const base = new URL(site).origin;
+  await Promise.all(
+    START_URLS.map(async site => {
+      console.log("🚀 Starting crawl:", site);
+      const base = new URL(site).origin;
 
-    const sitemapUrls = await getSitemapUrls(base);
-    const allUrls = [site, ...sitemapUrls];
+      const sitemapUrls = await getSitemapUrls(base);
+      const allUrls = [site, ...sitemapUrls];
 
-    for (const url of allUrls) {
-      await crawlPage(url, base);
-      await delay(1000);
-    }
-  }
+      await Promise.all(
+        allUrls.map(async url => {
+          await crawlPage(url, base);
+        })
+      );
+    })
+  );
 })();
