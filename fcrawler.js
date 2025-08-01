@@ -5,7 +5,7 @@ const { URL } = require("url");
 const path = require("path");
 
 const CHROMIUM_PATH = "/usr/bin/chromium-browser"; // Change to your chromium path if different
-const TARGET_URL = "https://example.com"; // 🧠 Change to target
+const TARGET_URL = "https://archive.org"; // 🧠 Change to target
 
 // Check if the site is JavaScript-heavy
 async function isJavaScriptSite(url) {
