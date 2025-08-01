@@ -1,96 +1,69 @@
-const puppeteer = require("puppeteer-core");
-const cheerio = require("cheerio");
 const axios = require("axios");
-const { URL } = require("url");
+const cheerio = require("cheerio");
+const fs = require("fs");
 const path = require("path");
 
-const CHROMIUM_PATH = "/usr/bin/chromium-browser"; // Change to your chromium path if different
-const TARGET_URL = "https://archive.org"; // 🧠 Change to target
+const visited = new Set();
+const maxDepth = 2;
 
-// Check if the site is JavaScript-heavy
-async function isJavaScriptSite(url) {
+async function crawlPage(currentUrl, depth = 0) {
+  if (visited.has(currentUrl) || depth > maxDepth) return;
+  visited.add(currentUrl);
+
+  console.log(`🔍 Scanning ${currentUrl}`);
+
+  let html;
   try {
-    const browser = await puppeteer.launch({ executablePath: CHROMIUM_PATH, headless: true });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
-
-    const content = await page.content();
-    const text = await page.evaluate(() => document.body.innerText.trim().length);
-    await browser.close();
-
-    const staticText = (await axios.get(url)).data.replace(/<[^>]*>/g, "").length;
-
-    const diff = Math.abs(text - staticText);
-    return diff > 100; // Heuristic threshold
+    const response = await axios.get(currentUrl, {
+      headers: { "User-Agent": "fcrawler-bot/1.0" },
+      timeout: 10000,
+    });
+    html = response.data;
   } catch (err) {
-    console.error("⚠️ JS check failed. Assuming HTML site.");
-    return false;
+    console.warn(`❌ Failed to fetch ${currentUrl}:`, err.message);
+    return;
   }
-}
 
-// Extract internal links from homepage
-async function getInternalLinks(url) {
-  const base = new URL(url).origin;
-  const html = (await axios.get(url)).data;
+  // Save page
+  const safeFilename = currentUrl.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+  const savePath = path.join(__dirname, "pages", `${safeFilename}.html`);
+  fs.mkdirSync(path.dirname(savePath), { recursive: true });
+  fs.writeFileSync(savePath, html);
+  console.log(`💾 Saved ${currentUrl} -> ${savePath}`);
+
+  // Load and extract links
   const $ = cheerio.load(html);
-  const links = new Set();
+  const links = $("a[href]")
+    .map((i, el) => $(el).attr("href"))
+    .get();
 
-  $("a[href]").each((_, el) => {
-    let link = $(el).attr("href");
-    if (!link) return;
+  console.log(`🔗 Extracted ${links.length} links from ${currentUrl}`);
 
-    if (link.startsWith("/")) {
-      link = base + link;
-    } else if (!link.startsWith("http")) {
-      link = base + "/" + link;
-    }
+  // Filter and normalize internal links
+  const base = new URL(currentUrl);
+  const internalLinks = links
+    .map(link => {
+      try {
+        return new URL(link, base).href;
+      } catch {
+        return null;
+      }
+    })
+    .filter(link => {
+      return link && new URL(link).hostname === base.hostname;
+    });
 
-    if (link.startsWith(base)) {
-      links.add(link.split("#")[0]);
-    }
-  });
+  console.log(`🔁 ${internalLinks.length} internal links found`);
 
-  return [...links];
-}
-
-// Crawl using Axios + Cheerio
-async function crawlWithAxios(url) {
-  try {
-    const html = (await axios.get(url)).data;
-    const $ = cheerio.load(html);
-    const title = $("title").text().trim();
-    console.log("📄 Axios:", title, "—", url);
-  } catch (err) {
-    console.error("❌ Axios error:", url, err.message);
+  // Recursively crawl
+  for (const link of internalLinks) {
+    await crawlPage(link, depth + 1);
   }
 }
 
-// Crawl using Puppeteer
-async function crawlWithPuppeteer(url) {
-  try {
-    const browser = await puppeteer.launch({ executablePath: CHROMIUM_PATH, headless: true });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
-    const title = await page.title();
-    console.log("🤖 Puppeteer:", title, "—", url);
-    await browser.close();
-  } catch (err) {
-    console.error("❌ Puppeteer error:", url, err.message);
-  }
-}
-
-// MAIN
+// Start crawling
 (async () => {
-  console.log("🔍 Scanning", TARGET_URL);
-
-  const isJS = await isJavaScriptSite(TARGET_URL);
-  console.log("🧠 Site type:", isJS ? "JavaScript-heavy" : "Static HTML");
-
-  const links = await getInternalLinks(TARGET_URL);
-  console.log("🔗 Found", links.length, "internal pages to crawl");
-
-  const tasks = links.map(url => isJS ? crawlWithPuppeteer(url) : crawlWithAxios(url));
-  await Promise.allSettled(tasks);
-
+  const startUrl = "https://archive.org";
+  await crawlPage(startUrl);
   console.log("✅ Crawling complete.");
 })();
