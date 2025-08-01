@@ -1,29 +1,96 @@
-const axios = require("axios");
+const puppeteer = require("puppeteer-core");
 const fs = require("fs");
 const path = require("path");
+const axios = require("axios");
 const FormData = require("form-data");
 
-// Use your saved auth token
-const AUTH_TOKEN = "d7C3SkZsOdg7ZRzm4A1QH7GFzuy1tbNXqSBAxr0M7";
-const FILE_PATH = "video_thumbnail.png";
+// === CONFIG ===
+const VIDEO_URL = "https://vm.tiktok.com/ZMSwR9pnE/"; // Your TikTok URL
+const CHROMIUM_PATH = "/usr/bin/chromium"; // Adjust for Termux/Linux
+const SCREENSHOT_FILE = "video_thumb.png";
+const PCLOUD_USERNAME = "nwankwofrancis2009@gmail.com";
+const PCLOUD_PASSWORD = "Onyedika";
 
+// === 1. Take Video Screenshot ===
+async function takeScreenshot() {
+  const browser = await puppeteer.launch({
+    executablePath: CHROMIUM_PATH,
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
+
+  const page = await browser.newPage();
+  await page.goto(VIDEO_URL, { waitUntil: "networkidle2", timeout: 0 });
+
+  // Detect <video> tag
+  const video = await page.$("video");
+  if (!video) {
+    console.log("❌ No <video> tag found.");
+    await browser.close();
+    return false;
+  }
+
+  // Play the video if it's paused
+  await video.evaluate((vid) => vid.play());
+  await page.waitForTimeout(2000); // Wait 2s to start playing
+
+  // Take screenshot of only video
+  const clip = await video.boundingBox();
+  if (!clip) {
+    console.log("❌ Couldn't find video area.");
+    await browser.close();
+    return false;
+  }
+
+  await video.screenshot({ path: SCREENSHOT_FILE, clip });
+  console.log("✅ Screenshot saved:", SCREENSHOT_FILE);
+  await browser.close();
+  return true;
+}
+
+// === 2. Login to pCloud and Get Auth Token ===
+async function getPCloudAuthToken(username, password) {
+  const url = `https://api.pcloud.com/login`;
+  const res = await axios.get(url, {
+    params: { getauth: 1, username, password }
+  });
+
+  if (res.data.result !== 0) {
+    throw new Error("❌ Login failed: " + res.data.error);
+  }
+
+  console.log("🔑 pCloud Auth Token:", res.data.auth);
+  return res.data.auth;
+}
+
+// === 3. Upload Screenshot to pCloud ===
+async function uploadToPCloud(authToken, filePath) {
+  const fileStream = fs.createReadStream(filePath);
+  const form = new FormData();
+  form.append("filename", path.basename(filePath));
+  form.append("file", fileStream);
+
+  const res = await axios.post(
+    `https://api.pcloud.com/uploadfile?auth=${authToken}&folderid=0`,
+    form,
+    { headers: form.getHeaders() }
+  );
+
+  if (res.data.result !== 0) {
+    throw new Error("❌ Upload failed: " + res.data.error);
+  }
+
+  console.log("📤 Uploaded to pCloud:", res.data.metadata[0].name);
+}
+
+// === 4. Full Process ===
 (async () => {
   try {
-    const fileStream = fs.createReadStream(FILE_PATH);
-    const form = new FormData();
-    form.append("file", fileStream);
+    const ok = await takeScreenshot();
+    if (!ok) return;
 
-    const uploadRes = await axios.post(
-      `https://api.pcloud.com/uploadfile?auth=${AUTH_TOKEN}&filename=${path.basename(FILE_PATH)}`,
-      form,
-      { headers: form.getHeaders() }
-    );
-
-    if (uploadRes.data.result === 0) {
-      console.log("✅ Upload successful:", uploadRes.data.metadata.name);
-    } else {
-      console.error("❌ Upload failed:", uploadRes.data);
-    }
+    const auth = await getPCloudAuthToken(PCLOUD_USERNAME, PCLOUD_PASSWORD);
+    await uploadToPCloud(auth, SCREENSHOT_FILE);
   } catch (err) {
     console.error("❌ Error:", err.message);
   }
