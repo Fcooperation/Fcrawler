@@ -32,8 +32,7 @@ async function takeScreenshot() {
 
   // Play the video if it's paused
   await video.evaluate((vid) => vid.play());
-  await page.waitForTimeout(2000); // Wait 2s to start playing
-
+  await new Promise(resolve => setTimeout(resolve, 2000));
   // Take screenshot of only video
   const clip = await video.boundingBox();
   if (!clip) {
