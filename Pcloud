@@ -5,7 +5,7 @@ const axios = require("axios");
 const FormData = require("form-data");
 
 // === CONFIG ===
-const VIDEO_URL = "https://vm.tiktok.com/ZMSwR9pnE/";
+const VIDEO_URL = "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEimQ_39TeZWHJQv4DmtADkab3looYgqSYev3pD8md1cwLXcbl4wOPq0L8Tr1vbK24uq0LD_9rw9N3GmvVrYoqSXWmARfIaGbasYCYRkPNyKFLKg2RYj4b7djeh9Lgo57HdQv5XgmUlRFNG8RnaH-YBvX2e71OxVuX5FotPa5-RcBodqEYFvU1T_wfcjdXA/s1612/Screenshot_20250725-103106.jpg";
 const CHROMIUM_PATH = "/usr/bin/chromium";
 const SCREENSHOT_FILE = "video_thumb.png";
 const PCLOUD_AUTH = "0Ig470ZsOdg7Z0sX5QYSOs2SnylhpDGsAt5kWoYzX";
