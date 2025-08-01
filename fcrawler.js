@@ -26,10 +26,10 @@ async function checkRobotsPermission(siteUrl, crawlerAgent) {
     const res = await axios.get(robotsUrl, { headers: { "User-Agent": crawlerAgent } });
     const robots = robotsParser(robotsUrl, res.data);
     const allowed = robots.isAllowed(siteUrl, crawlerAgent);
-    console.log(`🤖 Robots.txt check for ${crawlerAgent} @ ${siteUrl}: ${allowed ? "Allowed" : "Disallowed"}`);
+    console.log(`🤖 Robots.txt check @ ${siteUrl}: ${allowed ? "Allowed" : "Disallowed"}`);
     return allowed;
   } catch {
-    console.warn(`⚠️ robots.txt fetch failed for ${siteUrl} — assuming allowed.`);
+    console.warn(`⚠️ Failed to fetch robots.txt for ${siteUrl}, assuming allowed.`);
     return true;
   }
 }
@@ -41,10 +41,10 @@ async function getSitemapUrls(baseUrl) {
     });
     const parsed = await xml2js.parseStringPromise(res.data);
     const urls = parsed.urlset.url.map(u => u.loc[0]);
-    console.log(`🗺️ Found ${urls.length} URLs in sitemap for ${baseUrl}`);
+    console.log(`🗺️ Sitemap: Found ${urls.length} URLs`);
     return urls;
   } catch {
-    console.warn(`⚠️ No sitemap for ${baseUrl}`);
+    console.warn(`⚠️ No sitemap found at ${baseUrl}`);
     return [];
   }
 }
@@ -54,7 +54,7 @@ function sanitizeFilename(url) {
 }
 
 function extractBlockContent($, pageUrl) {
-  let blocks = [];
+  const blocks = [];
 
   $("body").find("p, h1, h2, h3, ul, li, img, a, video").each((_, el) => {
     const tag = $(el).get(0).tagName;
@@ -62,10 +62,6 @@ function extractBlockContent($, pageUrl) {
     if (tag === "img") {
       const src = $(el).attr("src");
       if (src) blocks.push(`<img src="${src}" style="max-width:100%;" />`);
-    } else if (tag === "a") {
-      const href = $(el).attr("href");
-      const text = $(el).text().trim();
-      if (href) blocks.push(`<a href="${href}">${text}</a>`);
     } else if (tag === "video") {
       const src = $(el).attr("src") || $(el).find("source").attr("src");
       if (src) {
@@ -80,6 +76,10 @@ function extractBlockContent($, pageUrl) {
           </a>
         `);
       }
+    } else if (tag === "a") {
+      const href = $(el).attr("href");
+      const text = $(el).text().trim();
+      if (href && text) blocks.push(`<a href="${href}">${text}</a>`);
     } else {
       blocks.push(`<${tag}>${$(el).text().trim()}</${tag}>`);
     }
@@ -88,10 +88,11 @@ function extractBlockContent($, pageUrl) {
   $("a[href]").each((_, el) => {
     const href = $(el).attr("href");
     if (!href) return;
+
     const abs = new URL(href, pageUrl).href;
     const ext = path.extname(abs).toLowerCase();
 
-    const isVideo = /(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|\.mp4|\.webm)/.test(href);
+    const isVideo = /(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|\.mp4|\.webm)/.test(abs);
     const isDoc = /\.(pdf|zip|docx?|pptx?|xlsx?)$/.test(ext);
 
     if (isVideo) {
@@ -106,12 +107,7 @@ function extractBlockContent($, pageUrl) {
       `);
     } else if (isDoc) {
       const filename = path.basename(abs).split("?")[0];
-      const icon = ext.includes("pdf")
-        ? "📕"
-        : ext.includes("zip")
-        ? "🗜️"
-        : "📄";
-
+      const icon = ext.includes("pdf") ? "📕" : ext.includes("zip") ? "🗜️" : "📄";
       blocks.push(`
         <a href="${abs}" target="_blank" style="text-decoration:none;">
           <div style="width:100%;display:flex;align-items:center;background:#eee;padding:10px;border-radius:8px;margin:10px 0;">
@@ -128,7 +124,7 @@ function extractBlockContent($, pageUrl) {
 
 async function saveAsHtml(url, title, content) {
   const filename = sanitizeFilename(url) + ".html";
-  const fullContent = `
+  const html = `
     <!DOCTYPE html>
     <html>
     <head>
@@ -144,8 +140,35 @@ async function saveAsHtml(url, title, content) {
     </body>
     </html>
   `;
-  fs.writeFileSync(path.join(__dirname, "output", filename), fullContent);
+  fs.writeFileSync(path.join(__dirname, "output", filename), html);
   console.log(`💾 Saved: ${filename}`);
+}
+
+async function fetchPageContent(url) {
+  try {
+    const res = await axios.get(url, {
+      headers: { "User-Agent": USER_AGENT },
+      timeout: 10000,
+    });
+    return res.data;
+  } catch (err) {
+    console.warn(`⚠️ Axios failed, trying Puppeteer for ${url}`);
+    try {
+      const browser = await puppeteer.launch({
+        executablePath: CHROMIUM_PATH,
+        headless: "new",
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      });
+      const page = await browser.newPage();
+      await page.setUserAgent(USER_AGENT);
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+      const content = await page.content();
+      await browser.close();
+      return content;
+    } catch (puppeteerError) {
+      throw new Error(`Puppeteer failed for ${url}: ${puppeteerError.message}`);
+    }
+  }
 }
 
 async function crawlPage(url, base) {
@@ -156,16 +179,12 @@ async function crawlPage(url, base) {
   if (!allowed) return;
 
   try {
-    const response = await axios.get(url, {
-      headers: { "User-Agent": USER_AGENT },
-      timeout: 10000,
-    });
-
-    const $ = cheerio.load(response.data);
-    const title = $("title").text().trim();
-    const blockContent = extractBlockContent($, url);
-    await saveAsHtml(url, title, blockContent);
-    console.log(`📄 Success: [${url}] - "${title}"`);
+    const html = await fetchPageContent(url);
+    const $ = cheerio.load(html);
+    const title = $("title").text().trim() || url;
+    const content = extractBlockContent($, url);
+    await saveAsHtml(url, title, content);
+    console.log(`✅ Crawled: ${url}`);
 
     const links = [];
     $("a[href]").each((_, el) => {
@@ -181,29 +200,24 @@ async function crawlPage(url, base) {
 
     for (const link of links) {
       await delay(500);
-      crawlPage(link, base); // ⚠️ Not awaited — async crawling!
+      await crawlPage(link, base);
     }
   } catch (err) {
-    console.warn(`❌ Failed to crawl ${url}: ${err.message}`);
+    console.warn(`❌ Failed: ${url} — ${err.message}`);
   }
 }
 
 (async () => {
   if (!fs.existsSync("output")) fs.mkdirSync("output");
 
-  await Promise.all(
-    START_URLS.map(async site => {
-      console.log("🚀 Starting crawl:", site);
-      const base = new URL(site).origin;
+  for (const site of START_URLS) {
+    console.log("🚀 Starting:", site);
+    const base = new URL(site).origin;
+    const sitemapUrls = await getSitemapUrls(base);
+    const allUrls = [site, ...sitemapUrls];
 
-      const sitemapUrls = await getSitemapUrls(base);
-      const allUrls = [site, ...sitemapUrls];
-
-      await Promise.all(
-        allUrls.map(async url => {
-          await crawlPage(url, base);
-        })
-      );
-    })
-  );
+    for (const url of allUrls) {
+      await crawlPage(url, base);
+    }
+  }
 })();
