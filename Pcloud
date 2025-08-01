@@ -1,48 +1,22 @@
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
+const FormData = require("form-data");
 
-// 🔐 Replace these with your real pCloud login credentials
-const PCLOUD_EMAIL = "nwankwofrancis2009@gmail.com";
-const PCLOUD_PASSWORD = "Onyedika";
-
-// 🔽 The file you want to upload
+// Use your saved auth token
+const AUTH_TOKEN = "d7C3SkZsOdg7ZRzm4A1QH7GFzuy1tbNXqSBAxr0M7";
 const FILE_PATH = "video_thumbnail.png";
 
-// 🔁 Main function
 (async () => {
   try {
-    // Step 1: Log in to pCloud
-    const loginRes = await axios.get("https://api.pcloud.com/login", {
-      params: {
-        getauth: 1,
-        username: PCLOUD_EMAIL,
-        password: PCLOUD_PASSWORD,
-      },
-    });
-
-    if (loginRes.data.result !== 0) {
-      console.error("❌ Login failed:", loginRes.data);
-      return;
-    }
-
-    const authToken = loginRes.data.auth;
-    console.log("✅ Logged in. Auth token:", authToken);
-
-    // Step 2: Upload file
     const fileStream = fs.createReadStream(FILE_PATH);
+    const form = new FormData();
+    form.append("file", fileStream);
+
     const uploadRes = await axios.post(
-      `https://api.pcloud.com/uploadfile?auth=${authToken}&filename=${path.basename(FILE_PATH)}`,
-      require("form-data").prototype.append.call(
-        new (require("form-data"))(),
-        "file",
-        fileStream
-      ),
-      {
-        headers: {
-          ...new (require("form-data"))().getHeaders(),
-        },
-      }
+      `https://api.pcloud.com/uploadfile?auth=${AUTH_TOKEN}&filename=${path.basename(FILE_PATH)}`,
+      form,
+      { headers: form.getHeaders() }
     );
 
     if (uploadRes.data.result === 0) {
