@@ -7,18 +7,40 @@ const fs = require("fs");
 const path = require("path");
 const xml2js = require("xml2js");
 
+// CONFIG SECTION
 const CHROMIUM_PATH = "/usr/bin/chromium-browser";
 const USER_AGENT = "fcrawler1.0";
 const START_URLS = [
   "https://example.com",
   "https://wikipedia.org",
   "https://espn.com",
-  "https://bbc.com",
+  "https://bbc.com"
 ];
+
+// 🔒 Placeholders for your pCloud upload tokens
+const TOKENS = {
+  img: ["TOKEN1", "TOKEN2", "TOKEN3", "TOKEN4", "TOKEN5", "TOKEN6", "TOKEN7", "TOKEN8"],
+  vid_doc: ["TOKEN9", "TOKEN10", "TOKEN11", "TOKEN12"],
+  html: ["TOKEN13", "TOKEN14", "TOKEN15"]
+};
 
 const visited = new Set();
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
+// Utilities
+function sanitizeFilename(url) {
+  return url.replace(/[^\w-]+/g, "_").slice(0, 150);
+}
+
+function saveSearchIndex(accountIndex, entry) {
+  const searchPath = `output/index_account_${accountIndex}.json`;
+  let index = [];
+  if (fs.existsSync(searchPath)) index = JSON.parse(fs.readFileSync(searchPath));
+  index.push(entry);
+  fs.writeFileSync(searchPath, JSON.stringify(index, null, 2));
+}
+
+// Robots.txt check
 async function checkRobotsPermission(siteUrl, crawlerAgent) {
   try {
     const base = new URL(siteUrl).origin;
@@ -34,6 +56,7 @@ async function checkRobotsPermission(siteUrl, crawlerAgent) {
   }
 }
 
+// Sitemap fetch
 async function getSitemapUrls(baseUrl) {
   try {
     const res = await axios.get(new URL("/sitemap.xml", baseUrl).href, {
@@ -49,10 +72,29 @@ async function getSitemapUrls(baseUrl) {
   }
 }
 
-function sanitizeFilename(url) {
-  return url.replace(/[^\w\-]+/g, "_").slice(0, 150);
+// Favicon handling
+async function crawlFavicon(siteUrl, accountIndex) {
+  try {
+    const base = new URL(siteUrl).origin;
+    const faviconUrl = `${base}/favicon.ico`;
+    const res = await axios.get(faviconUrl, { responseType: "arraybuffer" });
+    const filename = sanitizeFilename(base) + "_favicon.ico";
+    fs.writeFileSync(path.join(__dirname, "output", filename), res.data);
+    console.log(`🌟 Favicon saved: ${filename}`);
+
+    saveSearchIndex(accountIndex, {
+      type: "favicon",
+      source: faviconUrl,
+      filename,
+      description: `Favicon for ${base}`,
+    });
+
+  } catch (err) {
+    console.warn(`⚠️ Favicon not found for ${siteUrl}`);
+  }
 }
 
+// Extract page blocks
 function extractBlockContent($, pageUrl) {
   const blocks = [];
 
@@ -91,7 +133,6 @@ function extractBlockContent($, pageUrl) {
 
     const abs = new URL(href, pageUrl).href;
     const ext = path.extname(abs).toLowerCase();
-
     const isVideo = /(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|\.mp4|\.webm)/.test(abs);
     const isDoc = /\.(pdf|zip|docx?|pptx?|xlsx?)$/.test(ext);
 
@@ -122,7 +163,8 @@ function extractBlockContent($, pageUrl) {
   return blocks.join("\n");
 }
 
-async function saveAsHtml(url, title, content) {
+// HTML Save
+async function saveAsHtml(url, title, content, accountIndex) {
   const filename = sanitizeFilename(url) + ".html";
   const html = `
     <!DOCTYPE html>
@@ -130,9 +172,7 @@ async function saveAsHtml(url, title, content) {
     <head>
       <meta charset="UTF-8">
       <title>${title}</title>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.6; }
-      </style>
+      <style>body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.6; }</style>
     </head>
     <body>
       <h1>${title}</h1>
@@ -142,8 +182,16 @@ async function saveAsHtml(url, title, content) {
   `;
   fs.writeFileSync(path.join(__dirname, "output", filename), html);
   console.log(`💾 Saved: ${filename}`);
+
+  saveSearchIndex(accountIndex, {
+    type: "html",
+    source: url,
+    filename,
+    description: `Rebuilt HTML of ${title}`
+  });
 }
 
+// HTML fetch
 async function fetchPageContent(url) {
   try {
     const res = await axios.get(url, {
@@ -171,7 +219,8 @@ async function fetchPageContent(url) {
   }
 }
 
-async function crawlPage(url, base) {
+// Crawler
+async function crawlPage(url, base, indexTracker) {
   if (visited.has(url)) return;
   visited.add(url);
 
@@ -183,8 +232,13 @@ async function crawlPage(url, base) {
     const $ = cheerio.load(html);
     const title = $("title").text().trim() || url;
     const content = extractBlockContent($, url);
-    await saveAsHtml(url, title, content);
-    console.log(`✅ Crawled: ${url}`);
+
+    const htmlIndex = 13 + (indexTracker.html % TOKENS.html.length);
+    await saveAsHtml(url, title, content, htmlIndex);
+    indexTracker.html++;
+
+    await crawlFavicon(url, indexTracker.img % TOKENS.img.length);
+    indexTracker.img++;
 
     const links = [];
     $("a[href]").each((_, el) => {
@@ -200,13 +254,14 @@ async function crawlPage(url, base) {
 
     for (const link of links) {
       await delay(500);
-      await crawlPage(link, base);
+      await crawlPage(link, base, indexTracker);
     }
   } catch (err) {
     console.warn(`❌ Failed: ${url} — ${err.message}`);
   }
 }
 
+// MAIN
 (async () => {
   if (!fs.existsSync("output")) fs.mkdirSync("output");
 
@@ -215,9 +270,10 @@ async function crawlPage(url, base) {
     const base = new URL(site).origin;
     const sitemapUrls = await getSitemapUrls(base);
     const allUrls = [site, ...sitemapUrls];
+    const indexTracker = { img: 0, html: 0 };
 
     for (const url of allUrls) {
-      await crawlPage(url, base);
+      await crawlPage(url, base, indexTracker);
     }
   }
 })();
