@@ -304,7 +304,7 @@ async function crawlPage(url, base, indexTracker) {
     const base = new URL(site).origin;
     const sitemapUrls = await getSitemapUrls(base);
     const allUrls = [site, ...sitemapUrls];
-    const indexTracker = { img: 0, html: 0 };
+    const indexTracker = { img: 0, html: 0, vid_doc: 0 };
 
     for (const url of allUrls) {
       await crawlPage(url, base, indexTracker);
