@@ -181,10 +181,30 @@ function extractBlockContent($, pageUrl) {
     const isDoc = /\.(pdf|zip|docx?|pptx?|xlsx?)$/.test(ext);
 
     if (isVideo || isDoc) {
-      const filename = path.basename(abs).split("?")[0];
-      const icon = isVideo ? "🎥" : ext.includes("pdf") ? "📕" : ext.includes("zip") ? "🗜️" : "📄";
-      blocks.push(`<a href="${abs}" target="_blank"><div style="padding:10px;background:#eee;border-radius:8px;margin:10px 0;">${icon} ${filename}</div></a>`);
-    }
+  const filename = path.basename(abs).split("?")[0];
+  const icon = isVideo ? "🎥" : ext.includes("pdf") ? "📕" : ext.includes("zip") ? "🗜️" : "📄";
+
+  const html = `<a href="${abs}" target="_blank">
+    <div style="width:250px;height:250px;background:#ddd;display:flex;align-items:center;justify-content:center;border-radius:12px;">${icon}</div>
+    <div style="margin-top:8px;font-weight:bold;text-align:center;">${filename}</div>
+  </a>`;
+
+  const cardFilename = sanitizeFilename(abs) + "_card.html";
+  const cardPath = path.join(__dirname, "output", cardFilename);
+  fs.writeFileSync(cardPath, html);
+
+  const token = TOKENS.vid_doc[indexTracker.vid_doc % TOKENS.vid_doc.length];
+  indexTracker.vid_doc++;
+
+  saveSearchIndex(indexTracker.vid_doc, {
+    type: isVideo ? "video" : "doc",
+    source: abs,
+    filename: cardFilename,
+    description: `Card for ${filename}`
+  });
+
+  uploadToPCloud(cardPath, token);
+}
   });
 
   return blocks.join("\n");
