@@ -20,8 +20,8 @@ const START_URLS = [
 // 🔒 Placeholders for your pCloud upload tokens
 const TOKENS = {
   img: ["vJMrHkZvOqg7ZyuqY3PLeMabIX2Oy5IAaqziLIPdk", "TOKEN2", "TOKEN3", "TOKEN4", "TOKEN5", "TOKEN6", "TOKEN7", "TOKEN8"],
-  vid_doc: ["TOKEN9", "TOKEN10", "TOKEN11", "TOKEN12"],
-  html: ["TOKEN13", "TOKEN14", "TOKEN15"]
+  vid_doc: ["TOKEN9", "TOKEN10", "i8l4tVZWAqg7Zs7yal9wRg1VTB0i80ay7WJ9LoWp7", "s2hf3XZgAqg7ZgAEmMo984NHvq9caJaUd3pMTW6Vy"],
+  html: ["X7683XZ1Nqg7ZdVsrUxmJUdJ5VULzO93agRTSMUiy", "JeJGF7ZTNqg7ZKkO3vrc0DVynITBdf6sI5F3bG48k", "GvL2yVZPNqg7Z65UnTHMMBhSo6OJSKgglDV99JrwX"]
 };
 
 const visited = new Set();
