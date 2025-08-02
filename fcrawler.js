@@ -6,8 +6,9 @@ const { URL } = require("url");
 const fs = require("fs");
 const path = require("path");
 const xml2js = require("xml2js");
+const FormData = require("form-data");
 
-// CONFIG SECTION
+// CONFIG
 const CHROMIUM_PATH = "/usr/bin/chromium-browser";
 const USER_AGENT = "fcrawler1.0";
 const START_URLS = [
@@ -17,87 +18,120 @@ const START_URLS = [
   "https://bbc.com"
 ];
 
-// 🔒 Placeholders for your pCloud upload tokens
+// Your token map
 const TOKENS = {
-  img: ["llfCp7ZvOqg7ZVOswGdC6dDuXL5L6KVvlU0spQs9k", "l2GgeVZ5Iqg7Z1scTCnwEi0zTIdDByAkiY4qwqPyy", "qTOAXkZYIqg7ZUJf0Pzx2hxSLxeHG3WAckkH4MPHV", "ERuvSkZsIqg7ZUWIbmGDTjtpz0iP7EODquVU3DqYV", "OxllVVZMIqg7ZGRDmHCwen7pc4g7SS6qKmfgSbfuk", "xn2htkZlIqg7Z2Ma81vDDROyY0bmCtrYyMz2BhOYy", "1wP0qXZ6Iqg7Z6YqRGXfDplXAJtDInHXgk8Bd8NwX", "xpOOnXZGIqg7ZmAOqe0YlIIk57PAoiozFv7e9kbrX"],
-  vid_doc: ["JTejeZcIqg7ZIC4BOBzw92zUjgRJHkrhAhn6kaLX", "qoy397ZkAqg7ZK4rpR9Sce0LVTAMwFVhKsLYymloX", "i8l4tVZWAqg7Zs7yal9wRg1VTB0i80ay7WJ9LoWp7", "s2hf3XZgAqg7ZgAEmMo984NHvq9caJaUd3pMTW6Vy"],
-  html: ["X7683XZ1Nqg7ZdVsrUxmJUdJ5VULzO93agRTSMUiy", "JeJGF7ZTNqg7ZKkO3vrc0DVynITBdf6sI5F3bG48k", "GvL2yVZPNqg7Z65UnTHMMBhSo6OJSKgglDV99JrwX"]
+  img: [...],
+  vid_doc: [...],
+  html: [...]
 };
 
 const visited = new Set();
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
-// Utilities
+// ✨ Helper: Clean filename
 function sanitizeFilename(url) {
   return url.replace(/[^\w-]+/g, "_").slice(0, 150);
 }
 
+// ✅ Upload to pCloud
+async function uploadToPCloud(filePath, token) {
+  const filename = path.basename(filePath);
+  try {
+    // Check if it exists
+    const check = await axios.get("https://api.pcloud.com/file_exists", {
+      params: { auth: token, path: "/" + filename }
+    });
+
+    if (check.data.exists) {
+      console.log(`☁️ Skipped (already exists): ${filename}`);
+      return;
+    }
+
+    // Upload
+    const form = new FormData();
+    form.append("file", fs.createReadStream(filePath));
+    form.append("filename", filename);
+    form.append("auth", token);
+
+    const res = await axios.post("https://api.pcloud.com/uploadfile", form, {
+      headers: form.getHeaders()
+    });
+
+    if (res.data.result === 0) {
+      console.log(`☁️ Uploaded to pCloud: ${filename}`);
+    } else {
+      console.warn(`⚠️ Upload error: ${res.data.error}`);
+    }
+  } catch (err) {
+    console.warn(`⚠️ Upload failed for ${filename}: ${err.message}`);
+  }
+}
+
+// ✅ Save search index and upload
 function saveSearchIndex(accountIndex, entry) {
   const searchPath = `output/index_account_${accountIndex}.json`;
   let index = [];
   if (fs.existsSync(searchPath)) index = JSON.parse(fs.readFileSync(searchPath));
   index.push(entry);
   fs.writeFileSync(searchPath, JSON.stringify(index, null, 2));
+  uploadToPCloud(searchPath, TOKENS.html[accountIndex % TOKENS.html.length]);
 }
 
-// Robots.txt check
-async function checkRobotsPermission(siteUrl, crawlerAgent) {
-  try {
-    const base = new URL(siteUrl).origin;
-    const robotsUrl = `${base}/robots.txt`;
-    const res = await axios.get(robotsUrl, { headers: { "User-Agent": crawlerAgent } });
-    const robots = robotsParser(robotsUrl, res.data);
-    const allowed = robots.isAllowed(siteUrl, crawlerAgent);
-    console.log(`🤖 Robots.txt check @ ${siteUrl}: ${allowed ? "Allowed" : "Disallowed"}`);
-    return allowed;
-  } catch {
-    console.warn(`⚠️ Failed to fetch robots.txt for ${siteUrl}, assuming allowed.`);
-    return true;
-  }
+// ✅ Save HTML and upload
+async function saveAsHtml(url, title, content, accountIndex) {
+  const filename = sanitizeFilename(url) + ".html";
+  const fullPath = path.join(__dirname, "output", filename);
+  const html = `
+    <!DOCTYPE html>
+    <html><head>
+      <meta charset="UTF-8">
+      <title>${title}</title>
+      <style>body { font-family: Arial; padding: 20px; line-height: 1.6; }</style>
+    </head><body>
+      <h1>${title}</h1>
+      ${content}
+    </body></html>
+  `;
+  fs.writeFileSync(fullPath, html);
+  console.log(`💾 Saved: ${filename}`);
+
+  saveSearchIndex(accountIndex, {
+    type: "html",
+    source: url,
+    filename,
+    description: `Rebuilt HTML of ${title}`
+  });
+
+  await uploadToPCloud(fullPath, TOKENS.html[accountIndex % TOKENS.html.length]);
 }
 
-// Sitemap fetch
-async function getSitemapUrls(baseUrl) {
-  try {
-    const res = await axios.get(new URL("/sitemap.xml", baseUrl).href, {
-      headers: { "User-Agent": USER_AGENT },
-    });
-    const parsed = await xml2js.parseStringPromise(res.data);
-    const urls = parsed.urlset.url.map(u => u.loc[0]);
-    console.log(`🗺️ Sitemap: Found ${urls.length} URLs`);
-    return urls;
-  } catch {
-    console.warn(`⚠️ No sitemap found at ${baseUrl}`);
-    return [];
-  }
-}
-
-// Favicon handling
+// ✅ Save favicon and upload
 async function crawlFavicon(siteUrl, accountIndex) {
   try {
     const base = new URL(siteUrl).origin;
     const faviconUrl = `${base}/favicon.ico`;
     const res = await axios.get(faviconUrl, { responseType: "arraybuffer" });
     const filename = sanitizeFilename(base) + "_favicon.ico";
-    fs.writeFileSync(path.join(__dirname, "output", filename), res.data);
+    const fullPath = path.join(__dirname, "output", filename);
+    fs.writeFileSync(fullPath, res.data);
     console.log(`🌟 Favicon saved: ${filename}`);
 
     saveSearchIndex(accountIndex, {
       type: "favicon",
       source: faviconUrl,
       filename,
-      description: `Favicon for ${base}`,
+      description: `Favicon for ${base}`
     });
 
-  } catch (err) {
+    await uploadToPCloud(fullPath, TOKENS.img[accountIndex % TOKENS.img.length]);
+  } catch {
     console.warn(`⚠️ Favicon not found for ${siteUrl}`);
   }
 }
 
-// Extract page blocks
+// ✅ Extract blocks with previews
 function extractBlockContent($, pageUrl) {
   const blocks = [];
-
   $("body").find("p, h1, h2, h3, ul, li, img, a, video").each((_, el) => {
     const tag = $(el).get(0).tagName;
 
@@ -109,14 +143,7 @@ function extractBlockContent($, pageUrl) {
       if (src) {
         const abs = new URL(src, pageUrl).href;
         const filename = path.basename(abs).split("?")[0];
-        blocks.push(`
-          <a href="${abs}" target="_blank" style="text-decoration:none;">
-            <div style="width:250px;height:250px;background:#ccc;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;margin:10px 0;">
-              🎬 Video Preview
-            </div>
-            <div style="font-weight:bold;margin-bottom:20px;">${filename}</div>
-          </a>
-        `);
+        blocks.push(`<a href="${abs}" target="_blank"><div style="width:250px;height:250px;background:#ccc;">🎬 Video Preview</div><div>${filename}</div></a>`);
       }
     } else if (tag === "a") {
       const href = $(el).attr("href");
@@ -130,96 +157,66 @@ function extractBlockContent($, pageUrl) {
   $("a[href]").each((_, el) => {
     const href = $(el).attr("href");
     if (!href) return;
-
     const abs = new URL(href, pageUrl).href;
     const ext = path.extname(abs).toLowerCase();
     const isVideo = /(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|\.mp4|\.webm)/.test(abs);
     const isDoc = /\.(pdf|zip|docx?|pptx?|xlsx?)$/.test(ext);
 
-    if (isVideo) {
+    if (isVideo || isDoc) {
       const filename = path.basename(abs).split("?")[0];
-      blocks.push(`
-        <a href="${abs}" target="_blank" style="text-decoration:none;">
-          <div style="width:250px;height:250px;background:#bbb;border-radius:8px;display:flex;align-items:center;justify-content:center;text-align:center;margin:10px 0;">
-            🎥 Video Link
-          </div>
-          <div style="font-weight:bold;margin-bottom:20px;">${filename}</div>
-        </a>
-      `);
-    } else if (isDoc) {
-      const filename = path.basename(abs).split("?")[0];
-      const icon = ext.includes("pdf") ? "📕" : ext.includes("zip") ? "🗜️" : "📄";
-      blocks.push(`
-        <a href="${abs}" target="_blank" style="text-decoration:none;">
-          <div style="width:100%;display:flex;align-items:center;background:#eee;padding:10px;border-radius:8px;margin:10px 0;">
-            <div style="font-size:2rem;margin-right:10px;">${icon}</div>
-            <div style="font-weight:bold;">${filename}</div>
-          </div>
-        </a>
-      `);
+      const icon = isVideo ? "🎥" : ext.includes("pdf") ? "📕" : ext.includes("zip") ? "🗜️" : "📄";
+      blocks.push(`<a href="${abs}" target="_blank"><div style="padding:10px;background:#eee;border-radius:8px;margin:10px 0;">${icon} ${filename}</div></a>`);
     }
   });
 
   return blocks.join("\n");
 }
 
-// HTML Save
-async function saveAsHtml(url, title, content, accountIndex) {
-  const filename = sanitizeFilename(url) + ".html";
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>${title}</title>
-      <style>body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.6; }</style>
-    </head>
-    <body>
-      <h1>${title}</h1>
-      ${content}
-    </body>
-    </html>
-  `;
-  fs.writeFileSync(path.join(__dirname, "output", filename), html);
-  console.log(`💾 Saved: ${filename}`);
-
-  saveSearchIndex(accountIndex, {
-    type: "html",
-    source: url,
-    filename,
-    description: `Rebuilt HTML of ${title}`
-  });
-}
-
-// HTML fetch
-async function fetchPageContent(url) {
+// ✅ Robots
+async function checkRobotsPermission(siteUrl, agent) {
   try {
-    const res = await axios.get(url, {
-      headers: { "User-Agent": USER_AGENT },
-      timeout: 10000,
-    });
-    return res.data;
-  } catch (err) {
-    console.warn(`⚠️ Axios failed, trying Puppeteer for ${url}`);
-    try {
-      const browser = await puppeteer.launch({
-        executablePath: CHROMIUM_PATH,
-        headless: "new",
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      });
-      const page = await browser.newPage();
-      await page.setUserAgent(USER_AGENT);
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
-      const content = await page.content();
-      await browser.close();
-      return content;
-    } catch (puppeteerError) {
-      throw new Error(`Puppeteer failed for ${url}: ${puppeteerError.message}`);
-    }
+    const base = new URL(siteUrl).origin;
+    const robotsUrl = `${base}/robots.txt`;
+    const res = await axios.get(robotsUrl, { headers: { "User-Agent": agent } });
+    const robots = robotsParser(robotsUrl, res.data);
+    return robots.isAllowed(siteUrl, agent);
+  } catch {
+    return true;
   }
 }
 
-// Crawler
+// ✅ Get sitemap URLs
+async function getSitemapUrls(baseUrl) {
+  try {
+    const res = await axios.get(new URL("/sitemap.xml", baseUrl).href, { headers: { "User-Agent": USER_AGENT } });
+    const parsed = await xml2js.parseStringPromise(res.data);
+    return parsed.urlset.url.map(u => u.loc[0]);
+  } catch {
+    return [];
+  }
+}
+
+// ✅ Fetch HTML via axios or puppeteer
+async function fetchPageContent(url) {
+  try {
+    const res = await axios.get(url, { headers: { "User-Agent": USER_AGENT }, timeout: 10000 });
+    return res.data;
+  } catch {
+    const browser = await puppeteer.launch({
+      executablePath: CHROMIUM_PATH,
+      headless: "new",
+      args: ["--no-sandbox"]
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent(USER_AGENT);
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+    const content = await page.content();
+    await browser.close();
+    return content;
+  }
+}
+
+// ✅ Crawl one page
 async function crawlPage(url, base, indexTracker) {
   if (visited.has(url)) return;
   visited.add(url);
@@ -233,7 +230,7 @@ async function crawlPage(url, base, indexTracker) {
     const title = $("title").text().trim() || url;
     const content = extractBlockContent($, url);
 
-    const htmlIndex = 13 + (indexTracker.html % TOKENS.html.length);
+    const htmlIndex = indexTracker.html % TOKENS.html.length;
     await saveAsHtml(url, title, content, htmlIndex);
     indexTracker.html++;
 
@@ -261,12 +258,11 @@ async function crawlPage(url, base, indexTracker) {
   }
 }
 
-// MAIN
+// ✅ Main entry
 (async () => {
   if (!fs.existsSync("output")) fs.mkdirSync("output");
 
   for (const site of START_URLS) {
-    console.log("🚀 Starting:", site);
     const base = new URL(site).origin;
     const sitemapUrls = await getSitemapUrls(base);
     const allUrls = [site, ...sitemapUrls];
