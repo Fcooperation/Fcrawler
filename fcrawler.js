@@ -19,8 +19,8 @@ const START_URLS = [
 
 // 🔒 Placeholders for your pCloud upload tokens
 const TOKENS = {
-  img: ["vJMrHkZvOqg7ZyuqY3PLeMabIX2Oy5IAaqziLIPdk", "TOKEN2", "TOKEN3", "TOKEN4", "TOKEN5", "TOKEN6", "TOKEN7", "TOKEN8"],
-  vid_doc: ["TOKEN9", "TOKEN10", "i8l4tVZWAqg7Zs7yal9wRg1VTB0i80ay7WJ9LoWp7", "s2hf3XZgAqg7ZgAEmMo984NHvq9caJaUd3pMTW6Vy"],
+  img: ["llfCp7ZvOqg7ZVOswGdC6dDuXL5L6KVvlU0spQs9k", "l2GgeVZ5Iqg7Z1scTCnwEi0zTIdDByAkiY4qwqPyy", "qTOAXkZYIqg7ZUJf0Pzx2hxSLxeHG3WAckkH4MPHV", "ERuvSkZsIqg7ZUWIbmGDTjtpz0iP7EODquVU3DqYV", "OxllVVZMIqg7ZGRDmHCwen7pc4g7SS6qKmfgSbfuk", "xn2htkZlIqg7Z2Ma81vDDROyY0bmCtrYyMz2BhOYy", "1wP0qXZ6Iqg7Z6YqRGXfDplXAJtDInHXgk8Bd8NwX", "xpOOnXZGIqg7ZmAOqe0YlIIk57PAoiozFv7e9kbrX"],
+  vid_doc: ["JTejeZcIqg7ZIC4BOBzw92zUjgRJHkrhAhn6kaLX", "qoy397ZkAqg7ZK4rpR9Sce0LVTAMwFVhKsLYymloX", "i8l4tVZWAqg7Zs7yal9wRg1VTB0i80ay7WJ9LoWp7", "s2hf3XZgAqg7ZgAEmMo984NHvq9caJaUd3pMTW6Vy"],
   html: ["X7683XZ1Nqg7ZdVsrUxmJUdJ5VULzO93agRTSMUiy", "JeJGF7ZTNqg7ZKkO3vrc0DVynITBdf6sI5F3bG48k", "GvL2yVZPNqg7Z65UnTHMMBhSo6OJSKgglDV99JrwX"]
 };
 
