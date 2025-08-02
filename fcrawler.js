@@ -18,11 +18,29 @@ const START_URLS = [
   "https://bbc.com"
 ];
 
-// Your token map
+// ✅ Round-Robin Token Assignment
 const TOKENS = {
-  img: [...],
-  vid_doc: [...],
-  html: [...]
+  img: [
+    "vJMrHkZvOqg7ZyuqY3PLeMabIX2Oy5IAaqziLIPdk",
+    "RXAm9kZ5Iqg7ZlXaRXfvKslSqc19nxNUcebmYQjak",
+    "THCtRXZYIqg7ZNzbkHdHFl9Vi76h73cGcEyne3CtV",
+    "z5oyqkZsIqg7Z8U7Ep1os4XXpI7ic0L40NJ5LS8kk",
+    "5IirvXZMIqg7ZOQDnhREmhzj1E5fJwEWEhQnraNe7",
+    "XHFGy7ZlIqg7ZaKWDkLJ1k7Xe96JOtt8PHRBdTY4k",
+    "ItC7rXZ6Iqg7ZSr8FyPBJcMmDXglcFDk2v72avm67",
+    "SYy2EVZGIqg7ZfkiOyDhV3MzYs758c9gcNhNwBYhk"
+  ],
+  vid_doc: [
+    "qE79zVZcIqg7Z9CSRS0JPivV6wwrSm5LSJfDmtF6y",
+    "Q3RwfXZkAqg7ZfqmWtyEsuKYk0qYnquPnELbxYkPy",
+    "i8l4tVZWAqg7Zs7yal9wRg1VTB0i80ay7WJ9LoWp7",
+    "s2hf3XZgAqg7ZgAEmMo984NHvq9caJaUd3pMTW6Vy"
+  ],
+  html: [
+    "X7683XZ1Nqg7ZdVsrUxmJUdJ5VULzO93agRTSMUiy",
+    "JeJGF7ZTNqg7ZKkO3vrc0DVynITBdf6sI5F3bG48k",
+    "GvL2yVZPNqg7Z65UnTHMMBhSo6OJSKgglDV99JrwX"
+  ]
 };
 
 const visited = new Set();
